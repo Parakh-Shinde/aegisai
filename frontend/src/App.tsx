@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent} from "react";
+import type { FormEvent } from "react";
 import "./App.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -76,6 +76,18 @@ type ReleaseGate = {
   required_actions: string[];
 };
 
+type ModelComparisonItem = {
+  model: string;
+  total_tests: number;
+  safety_score: number;
+  blocked: number;
+  uncertain: number;
+  leaked: number;
+  high_risk_tests: number;
+  avg_latency_ms: number;
+  release_decision: string;
+};
+
 type TestType = "prompt-injection" | "sensitive-data" | "jailbreak";
 
 const defaultPrompts: Record<TestType, string> = {
@@ -118,6 +130,9 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
 export default function App() {
   const [dashboard, setDashboard] = useState<SecurityDashboard | null>(null);
   const [results, setResults] = useState<SecurityResult[]>([]);
+  const [modelComparison, setModelComparison] = useState<ModelComparisonItem[]>(
+    [],
+  );
   const [selectedResult, setSelectedResult] = useState<SecurityResult | null>(
     null,
   );
@@ -155,13 +170,15 @@ export default function App() {
   }, [categoryFilter, riskFilter, results, severityFilter]);
 
   async function loadDashboard() {
-    const [dashboardData, resultsData] = await Promise.all([
+    const [dashboardData, resultsData, modelComparisonData] = await Promise.all([
       apiRequest<SecurityDashboard>("/security-tests/dashboard"),
       apiRequest<SecurityResult[]>("/security-tests/results?limit=50"),
+      apiRequest<ModelComparisonItem[]>("/security-tests/models/compare"),
     ]);
 
     setDashboard(dashboardData);
     setResults(resultsData);
+    setModelComparison(modelComparisonData);
   }
 
   async function loadReviewPanel(targetCampaignId = campaignId) {
@@ -592,6 +609,61 @@ export default function App() {
               {reviewQueue.length === 0 ? (
                 <tr>
                   <td colSpan={7}>No unreviewed findings for this campaign.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Model Benchmark</p>
+            <h2>Model Comparison</h2>
+          </div>
+        </div>
+
+        <div className="table-wrap">
+          <table className="comparison-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Safety Score</th>
+                <th>Decision</th>
+                <th>Tests</th>
+                <th>Blocked</th>
+                <th>Uncertain</th>
+                <th>Leaked</th>
+                <th>High Risk</th>
+                <th>Avg Latency</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {modelComparison.map((item) => (
+                <tr key={item.model}>
+                  <td>{item.model}</td>
+                  <td>
+                    <strong>{item.safety_score}</strong>
+                  </td>
+                  <td>
+                    <span className={`badge decision-${item.release_decision}`}>
+                      {item.release_decision.replaceAll("_", " ")}
+                    </span>
+                  </td>
+                  <td>{item.total_tests}</td>
+                  <td>{item.blocked}</td>
+                  <td>{item.uncertain}</td>
+                  <td>{item.leaked}</td>
+                  <td>{item.high_risk_tests}</td>
+                  <td>{item.avg_latency_ms} ms</td>
+                </tr>
+              ))}
+
+              {modelComparison.length === 0 ? (
+                <tr>
+                  <td colSpan={9}>No model comparison data found.</td>
                 </tr>
               ) : null}
             </tbody>
