@@ -320,35 +320,36 @@ export default function App() {
   }
 
   async function exportCampaignReport() {
-  if (!campaignId.trim()) {
-    setError("Campaign ID is required to export a report.");
-    return;
+    if (!campaignId.trim()) {
+      setError("Campaign ID is required to export a report.");
+      return;
+    }
+
+    setError("");
+
+    try {
+      const report = await apiRequest<unknown>(
+        `/security-tests/campaigns/${campaignId}/report`,
+      );
+
+      const blob = new Blob([JSON.stringify(report, null, 2)], {
+        type: "application/json",
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `${campaignId}_aegisai_campaign_report.json`;
+      link.click();
+
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Campaign report export failed.",
+      );
+    }
   }
-
-  setError("");
-
-  try {
-    const report = await apiRequest<unknown>(
-      `/security-tests/campaigns/${campaignId}/report`,
-    );
-
-    const blob = new Blob([JSON.stringify(report, null, 2)], {
-      type: "application/json",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = `${campaignId}_aegisai_campaign_report.json`;
-    link.click();
-
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    setError(err instanceof Error ? err.message : "Campaign report export failed.");
-  }
-}
-
 
   function exportResult(result: SecurityResult) {
     const blob = new Blob([JSON.stringify(result, null, 2)], {
