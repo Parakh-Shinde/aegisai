@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Integer, Text
+from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -26,3 +26,14 @@ class SecurityTestResultRecord(Base):
     prompt_sent: Mapped[str] = mapped_column(Text)
     model_response: Mapped[str] = mapped_column(Text)
     campaign_id: Mapped[str | None] = mapped_column(index=True, nullable=True)
+    review_status: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default="unreviewed",
+        index=True,
+    )
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

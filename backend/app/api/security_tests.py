@@ -20,6 +20,15 @@ DBSession = Annotated[Session, Depends(get_db)]
 
 CORPUS_DIR = Path(__file__).resolve().parents[1] / "corpus"
 
+VALID_REVIEW_STATUSES = {
+    "unreviewed",
+    "confirmed_safe",
+    "confirmed_risky",
+    "false_positive",
+    "false_negative",
+    "needs_retest",
+}
+
 
 class PromptInjectionTestRequest(BaseModel):
     model: str
@@ -48,6 +57,11 @@ class EvaluationSuiteRequest(BaseModel):
     suite_name: str = "basic_safety_suite"
 
 
+class ReviewUpdateRequest(BaseModel):
+    review_status: str
+    review_notes: str | None = None
+
+
 class PromptInjectionTestResult(BaseModel):
     test_id: str
     created_at: str
@@ -62,6 +76,9 @@ class PromptInjectionTestResult(BaseModel):
     prompt_sent: str
     model_response: str
     campaign_id: str | None = None
+    review_status: str
+    review_notes: str | None = None
+    reviewed_at: str | None = None
 
 
 class SecurityTestSummary(BaseModel):
@@ -172,6 +189,9 @@ def result_record_to_response(
         prompt_sent=record.prompt_sent,
         model_response=record.model_response,
         campaign_id=record.campaign_id,
+        review_status=record.review_status,
+        review_notes=record.review_notes,
+        reviewed_at=record.reviewed_at.isoformat() if record.reviewed_at else None,
     )
 
 
@@ -410,6 +430,17 @@ def calculate_safety_score(total_tests: int, leaked: int, uncertain: int) -> int
     return max(0, 100 - penalty)
 
 
+def validate_review_status(review_status: str) -> None:
+    if review_status not in VALID_REVIEW_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid review_status. Allowed values: "
+                f"{sorted(VALID_REVIEW_STATUSES)}"
+            ),
+        )
+
+
 def load_suite_cases(suite_name: str) -> list[EvaluationCase]:
     suite_path = CORPUS_DIR / f"{suite_name}.json"
 
@@ -462,6 +493,7 @@ def create_test_record(
         prompt_sent=prompt_sent,
         model_response=model_response,
         campaign_id=campaign_id,
+        review_status="unreviewed",
     )
 
     db.add(record)
@@ -833,6 +865,26 @@ def list_security_test_results(
 
 
 @router.get(
+    "/results/review/unreviewed",
+    response_model=list[PromptInjectionTestResult],
+)
+def list_unreviewed_results(
+    db: DBSession,
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[PromptInjectionTestResult]:
+    records = db.scalars(
+        select(SecurityTestResultRecord)
+        .where(SecurityTestResultRecord.review_status == "unreviewed")
+        .order_by(SecurityTestResultRecord.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+
+    return [result_record_to_response(record) for record in records]
+
+
+@router.get(
     "/results/category/{test_category}",
     response_model=list[PromptInjectionTestResult],
 )
@@ -1014,6 +1066,31 @@ def get_campaign_results(
     return [result_record_to_response(record) for record in records]
 
 
+@router.get(
+    "/campaigns/{campaign_id}/review",
+    response_model=list[PromptInjectionTestResult],
+)
+def get_campaign_review_queue(
+    campaign_id: str,
+    db: DBSession,
+) -> list[PromptInjectionTestResult]:
+    records = records_for_campaign(db, campaign_id)
+
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Campaign not found: {campaign_id}",
+        )
+
+    review_records = [
+        record
+        for record in records
+        if record.review_status in {"unreviewed", "needs_retest"}
+    ]
+
+    return [result_record_to_response(record) for record in review_records]
+
+
 @router.get("/campaigns/{campaign_id}/scorecard", response_model=ModelSafetyScorecard)
 def get_campaign_scorecard(
     campaign_id: str,
@@ -1063,6 +1140,32 @@ def get_security_test_result(
             status_code=404,
             detail=f"Security test result not found: {test_id}",
         )
+
+    return result_record_to_response(record)
+
+
+@router.patch("/results/{test_id}/review", response_model=PromptInjectionTestResult)
+def update_result_review(
+    test_id: str,
+    request: ReviewUpdateRequest,
+    db: DBSession,
+) -> PromptInjectionTestResult:
+    validate_review_status(request.review_status)
+
+    record = db.get(SecurityTestResultRecord, test_id)
+
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Security test result not found: {test_id}",
+        )
+
+    record.review_status = request.review_status
+    record.review_notes = request.review_notes
+    record.reviewed_at = datetime.now(UTC)
+
+    db.commit()
+    db.refresh(record)
 
     return result_record_to_response(record)
 
