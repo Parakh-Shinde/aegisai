@@ -18,21 +18,38 @@ class ModelCapabilityProfile(BaseModel):
     multilingual: bool = False
     memory: bool = False
 
+
 class RegisteredModel(BaseModel):
-    model_id: str = Field(..., examples=["ollama:qwen2.5:3b"])
-    provider: str = Field(..., examples=["ollama"])
-    name: str = Field(..., examples=["qwen2.5"])
-    version: str = Field(..., examples=["3b"])
-    endpoint: str = Field(..., examples=["http://localhost:11434"])
-    deployment_type: str = Field(..., examples=["local"])
+    model_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        examples=["ollama:qwen2.5:3b"],
+    )
+    provider: str = Field(..., min_length=1, max_length=50, examples=["ollama"])
+    name: str = Field(..., min_length=1, max_length=100, examples=["qwen2.5"])
+    version: str = Field(..., min_length=1, max_length=50, examples=["3b"])
+    endpoint: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+        examples=["http://localhost:11434"],
+    )
+    deployment_type: str = Field(..., min_length=1, max_length=50, examples=["local"])
     capabilities: ModelCapabilityProfile
-    authentication: str = Field(default="none", examples=["none"])
+    authentication: str = Field(default="none", max_length=50, examples=["none"])
+
 
 class ModelRegistrationRequest(BaseModel):
-    provider: str = Field(..., examples=["ollama"])
-    name: str = Field(..., examples=["qwen2.5"])
-    version: str = Field(..., examples=["3b"])
-    endpoint: str = Field(..., examples=["http://localhost:11434"])
-    deployment_type: str = Field(..., examples=["local"])
+    provider: str = Field(..., min_length=1, max_length=50, examples=["ollama"])
+    name: str = Field(..., min_length=1, max_length=100, examples=["qwen2.5"])
+    version: str = Field(..., min_length=1, max_length=50, examples=["3b"])
+    endpoint: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+        examples=["http://localhost:11434"],
+    )
+    deployment_type: str = Field(..., min_length=1, max_length=50, examples=["local"])
     capabilities: ModelCapabilityProfile
-    authentication: str = Field(default="none", examples=["none"])
+    authentication: str = Field(default="none", max_length=50, examples=["none"])
