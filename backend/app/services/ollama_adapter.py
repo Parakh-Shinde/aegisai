@@ -2,6 +2,8 @@ import os
 
 import httpx
 
+from app.core.security import validate_local_http_url
+
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 
 
@@ -11,7 +13,7 @@ class OllamaAdapter:
             "OLLAMA_BASE_URL",
             DEFAULT_OLLAMA_BASE_URL,
         )
-        self.base_url = configured_url.rstrip("/")
+        self.base_url = validate_local_http_url(configured_url, "OLLAMA_BASE_URL")
 
     def health(self) -> dict[str, str]:
         try:
