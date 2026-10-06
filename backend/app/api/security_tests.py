@@ -61,6 +61,7 @@ class PromptInjectionTestResult(BaseModel):
     finding: str
     prompt_sent: str
     model_response: str
+    campaign_id: str | None = None
 
 
 class SecurityTestSummary(BaseModel):
@@ -100,6 +101,7 @@ class SecuritySuiteResult(BaseModel):
 
 class EvaluationSuiteResult(BaseModel):
     suite_id: str
+    campaign_id: str
     model: str
     suite_name: str
     total_cases: int
@@ -124,6 +126,7 @@ class ModelSafetyScorecard(BaseModel):
     privacy_score: int
     tool_injection_score: int
     avg_latency_ms: int
+    campaign_id: str | None = None
 
 
 class ReleaseGateDecision(BaseModel):
@@ -137,6 +140,19 @@ class ReleaseGateDecision(BaseModel):
     minimum_tests_required: int
     reason: str
     required_actions: list[str]
+    campaign_id: str | None = None
+
+
+class CampaignSummary(BaseModel):
+    campaign_id: str
+    model: str
+    total_tests: int
+    blocked: int
+    uncertain: int
+    leaked: int
+    safety_score: int
+    started_at: str
+    completed_at: str
 
 
 def result_record_to_response(
@@ -155,6 +171,7 @@ def result_record_to_response(
         finding=record.finding,
         prompt_sent=record.prompt_sent,
         model_response=record.model_response,
+        campaign_id=record.campaign_id,
     )
 
 
@@ -422,6 +439,7 @@ def create_test_record(
     prompt_sent: str,
     model_response: str,
     latency_ms: int,
+    campaign_id: str | None = None,
 ) -> PromptInjectionTestResult:
     risk_status, finding = analyze_response_by_category(
         test_category=test_category,
@@ -443,6 +461,7 @@ def create_test_record(
         finding=finding,
         prompt_sent=prompt_sent,
         model_response=model_response,
+        campaign_id=campaign_id,
     )
 
     db.add(record)
@@ -460,6 +479,7 @@ def run_ollama_security_test(
     test_category: str,
     instruction: str,
     user_prompt: str,
+    campaign_id: str | None = None,
 ) -> PromptInjectionTestResult:
     adapter = OllamaAdapter()
     prompt_sent = build_test_prompt(
@@ -488,6 +508,7 @@ def run_ollama_security_test(
         prompt_sent=prompt_sent,
         model_response=model_response,
         latency_ms=latency_ms,
+        campaign_id=campaign_id,
     )
 
 
@@ -496,6 +517,7 @@ def run_evaluation_case(
     db: Session,
     model: str,
     case: EvaluationCase,
+    campaign_id: str | None = None,
 ) -> PromptInjectionTestResult:
     return run_ollama_security_test(
         db=db,
@@ -504,6 +526,7 @@ def run_evaluation_case(
         test_category=case.test_category,
         instruction=case.instruction,
         user_prompt=case.user_prompt,
+        campaign_id=campaign_id,
     )
 
 
@@ -516,6 +539,19 @@ def records_for_model(
             select(SecurityTestResultRecord)
             .where(SecurityTestResultRecord.model == model)
             .order_by(SecurityTestResultRecord.created_at.desc())
+        ).all()
+    )
+
+
+def records_for_campaign(
+    db: Session,
+    campaign_id: str,
+) -> list[SecurityTestResultRecord]:
+    return list(
+        db.scalars(
+            select(SecurityTestResultRecord)
+            .where(SecurityTestResultRecord.campaign_id == campaign_id)
+            .order_by(SecurityTestResultRecord.created_at.asc())
         ).all()
     )
 
@@ -542,6 +578,7 @@ def score_for_category(
 def build_model_scorecard(
     model: str,
     records: list[SecurityTestResultRecord],
+    campaign_id: str | None = None,
 ) -> ModelSafetyScorecard:
     total_tests = len(records)
     blocked = sum(1 for record in records if record.risk_status == "blocked")
@@ -568,6 +605,7 @@ def build_model_scorecard(
         privacy_score=score_for_category(records, "privacy_leakage"),
         tool_injection_score=score_for_category(records, "tool_injection"),
         avg_latency_ms=avg_latency_ms,
+        campaign_id=campaign_id,
     )
 
 
@@ -622,6 +660,35 @@ def build_release_gate_decision(
         minimum_tests_required=minimum_tests_required,
         reason=reason,
         required_actions=required_actions,
+        campaign_id=scorecard.campaign_id,
+    )
+
+
+def build_campaign_summary(
+    campaign_id: str,
+    records: list[SecurityTestResultRecord],
+) -> CampaignSummary:
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Campaign not found: {campaign_id}",
+        )
+
+    model = records[0].model
+    blocked = sum(1 for record in records if record.risk_status == "blocked")
+    uncertain = sum(1 for record in records if record.risk_status == "uncertain")
+    leaked = sum(1 for record in records if record.risk_status == "leaked")
+
+    return CampaignSummary(
+        campaign_id=campaign_id,
+        model=model,
+        total_tests=len(records),
+        blocked=blocked,
+        uncertain=uncertain,
+        leaked=leaked,
+        safety_score=calculate_safety_score(len(records), leaked, uncertain),
+        started_at=min(record.created_at for record in records).isoformat(),
+        completed_at=max(record.created_at for record in records).isoformat(),
     )
 
 
@@ -719,9 +786,16 @@ def run_corpus_evaluation_suite(
     db: DBSession,
 ) -> EvaluationSuiteResult:
     suite_id = f"suite_{uuid4().hex[:12]}"
+    campaign_id = f"campaign_{uuid4().hex[:12]}"
     cases = load_suite_cases(request.suite_name)
     results = [
-        run_evaluation_case(db=db, model=request.model, case=case) for case in cases
+        run_evaluation_case(
+            db=db,
+            model=request.model,
+            case=case,
+            campaign_id=campaign_id,
+        )
+        for case in cases
     ]
 
     blocked = sum(1 for result in results if result.risk_status == "blocked")
@@ -730,6 +804,7 @@ def run_corpus_evaluation_suite(
 
     return EvaluationSuiteResult(
         suite_id=suite_id,
+        campaign_id=campaign_id,
         model=request.model,
         suite_name=request.suite_name,
         total_cases=len(results),
@@ -902,6 +977,77 @@ def get_release_gate_decision(
         )
 
     scorecard = build_model_scorecard(model, records)
+    return build_release_gate_decision(scorecard)
+
+
+@router.get("/campaigns", response_model=list[CampaignSummary])
+def list_campaigns(
+    db: DBSession,
+) -> list[CampaignSummary]:
+    campaign_ids = db.scalars(
+        select(SecurityTestResultRecord.campaign_id)
+        .where(SecurityTestResultRecord.campaign_id.is_not(None))
+        .distinct()
+    ).all()
+
+    summaries: list[CampaignSummary] = []
+    for campaign_id in campaign_ids:
+        records = records_for_campaign(db, campaign_id)
+        summaries.append(build_campaign_summary(campaign_id, records))
+
+    return sorted(summaries, key=lambda summary: summary.started_at, reverse=True)
+
+
+@router.get("/campaigns/{campaign_id}", response_model=list[PromptInjectionTestResult])
+def get_campaign_results(
+    campaign_id: str,
+    db: DBSession,
+) -> list[PromptInjectionTestResult]:
+    records = records_for_campaign(db, campaign_id)
+
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Campaign not found: {campaign_id}",
+        )
+
+    return [result_record_to_response(record) for record in records]
+
+
+@router.get("/campaigns/{campaign_id}/scorecard", response_model=ModelSafetyScorecard)
+def get_campaign_scorecard(
+    campaign_id: str,
+    db: DBSession,
+) -> ModelSafetyScorecard:
+    records = records_for_campaign(db, campaign_id)
+
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Campaign not found: {campaign_id}",
+        )
+
+    return build_model_scorecard(records[0].model, records, campaign_id=campaign_id)
+
+
+@router.get("/campaigns/{campaign_id}/release-gate", response_model=ReleaseGateDecision)
+def get_campaign_release_gate(
+    campaign_id: str,
+    db: DBSession,
+) -> ReleaseGateDecision:
+    records = records_for_campaign(db, campaign_id)
+
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Campaign not found: {campaign_id}",
+        )
+
+    scorecard = build_model_scorecard(
+        records[0].model,
+        records,
+        campaign_id=campaign_id,
+    )
     return build_release_gate_decision(scorecard)
 
 

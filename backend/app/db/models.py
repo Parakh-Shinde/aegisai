@@ -25,3 +25,4 @@ class SecurityTestResultRecord(Base):
     finding: Mapped[str] = mapped_column(Text)
     prompt_sent: Mapped[str] = mapped_column(Text)
     model_response: Mapped[str] = mapped_column(Text)
+    campaign_id: Mapped[str | None] = mapped_column(index=True, nullable=True)
