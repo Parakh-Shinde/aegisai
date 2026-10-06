@@ -6,15 +6,27 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import (
+    MAX_MODEL_NAME_LENGTH,
+    MAX_PROMPT_LENGTH,
+    MAX_REVIEW_NOTES_LENGTH,
+    require_api_key,
+    safe_upstream_error,
+    validate_identifier,
+)
 from app.db.models import SecurityTestResultRecord
 from app.services.ollama_adapter import OllamaAdapter
 
-router = APIRouter(prefix="/security-tests", tags=["Security Tests"])
+router = APIRouter(
+    prefix="/security-tests",
+    tags=["Security Tests"],
+    dependencies=[Depends(require_api_key)],
+)
 
 DBSession = Annotated[Session, Depends(get_db)]
 CORPUS_DIR = Path(__file__).resolve().parent.parent / "corpus"
@@ -29,13 +41,13 @@ VALID_REVIEW_STATUSES = {
 
 
 class SecurityTestRequest(BaseModel):
-    model: str
-    user_prompt: str
+    model: str = Field(..., min_length=1, max_length=MAX_MODEL_NAME_LENGTH)
+    user_prompt: str = Field(..., min_length=1, max_length=MAX_PROMPT_LENGTH)
 
 
 class CorpusSuiteRequest(BaseModel):
-    model: str
-    suite_name: str = "basic_safety_suite"
+    model: str = Field(..., min_length=1, max_length=MAX_MODEL_NAME_LENGTH)
+    suite_name: str = Field(default="basic_safety_suite", min_length=1, max_length=80)
 
 
 class PromptInjectionTestResult(BaseModel):
@@ -191,7 +203,7 @@ class SuiteRunResult(BaseModel):
 
 class ReviewUpdateRequest(BaseModel):
     review_status: str
-    review_notes: str | None = None
+    review_notes: str | None = Field(default=None, max_length=MAX_REVIEW_NOTES_LENGTH)
 
 
 def result_record_to_response(
@@ -228,7 +240,16 @@ def validate_review_status(review_status: str) -> None:
         )
 
 
+def validate_test_id(test_id: str) -> str:
+    return validate_identifier(test_id, "test_id")
+
+
+def validate_campaign_id(campaign_id: str) -> str:
+    return validate_identifier(campaign_id, "campaign_id")
+
+
 def load_corpus_suite(suite_name: str) -> list[dict[str, str]]:
+    validate_identifier(suite_name, "suite_name")
     suite_path = CORPUS_DIR / f"{suite_name}.json"
 
     if not suite_path.exists():
@@ -578,10 +599,7 @@ def run_security_test(
     try:
         result = adapter.generate(model=model, prompt=prompt_sent)
     except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Security test failed: {exc}",
-        ) from exc
+        raise safe_upstream_error("Security test failed.") from exc
 
     latency_ms = int((perf_counter() - started_at) * 1000)
     model_response = result.get("response", "")
@@ -936,6 +954,7 @@ def list_security_test_results_by_category(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[PromptInjectionTestResult]:
+    validate_identifier(test_category, "test_category")
     records = db.scalars(
         select(SecurityTestResultRecord)
         .where(SecurityTestResultRecord.test_category == test_category)
@@ -957,6 +976,7 @@ def list_security_test_results_by_risk(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[PromptInjectionTestResult]:
+    validate_identifier(risk_status, "risk_status")
     records = db.scalars(
         select(SecurityTestResultRecord)
         .where(SecurityTestResultRecord.risk_status == risk_status)
@@ -978,6 +998,7 @@ def list_security_test_results_by_severity(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[PromptInjectionTestResult]:
+    validate_identifier(severity, "severity")
     records = db.scalars(
         select(SecurityTestResultRecord)
         .where(SecurityTestResultRecord.severity == severity)
@@ -1049,6 +1070,7 @@ def get_model_scorecard(
     model: str,
     db: DBSession,
 ) -> Scorecard:
+    validate_identifier(model, "model")
     records = list(
         db.scalars(
             select(SecurityTestResultRecord).where(
@@ -1065,6 +1087,7 @@ def get_model_release_gate(
     model: str,
     db: DBSession,
 ) -> ReleaseGate:
+    validate_identifier(model, "model")
     records = list(
         db.scalars(
             select(SecurityTestResultRecord).where(
@@ -1172,6 +1195,7 @@ def get_campaign_results(
     campaign_id: str,
     db: DBSession,
 ) -> list[PromptInjectionTestResult]:
+    campaign_id = validate_campaign_id(campaign_id)
     records = db.scalars(
         select(SecurityTestResultRecord)
         .where(SecurityTestResultRecord.campaign_id == campaign_id)
@@ -1195,6 +1219,7 @@ def get_campaign_review_queue(
     campaign_id: str,
     db: DBSession,
 ) -> list[PromptInjectionTestResult]:
+    campaign_id = validate_campaign_id(campaign_id)
     records = db.scalars(
         select(SecurityTestResultRecord)
         .where(SecurityTestResultRecord.campaign_id == campaign_id)
@@ -1210,6 +1235,7 @@ def get_campaign_review_summary(
     campaign_id: str,
     db: DBSession,
 ) -> ReviewSummary:
+    campaign_id = validate_campaign_id(campaign_id)
     records = list(
         db.scalars(
             select(SecurityTestResultRecord).where(
@@ -1232,6 +1258,7 @@ def get_campaign_scorecard(
     campaign_id: str,
     db: DBSession,
 ) -> Scorecard:
+    campaign_id = validate_campaign_id(campaign_id)
     records = list(
         db.scalars(
             select(SecurityTestResultRecord).where(
@@ -1257,6 +1284,7 @@ def get_campaign_release_gate(
     campaign_id: str,
     db: DBSession,
 ) -> ReviewAwareReleaseGate:
+    campaign_id = validate_campaign_id(campaign_id)
     records = list(
         db.scalars(
             select(SecurityTestResultRecord).where(
@@ -1384,6 +1412,7 @@ def get_campaign_report(
     campaign_id: str,
     db: DBSession,
 ) -> CampaignReport:
+    campaign_id = validate_campaign_id(campaign_id)
     records = list(
         db.scalars(
             select(SecurityTestResultRecord)
@@ -1419,6 +1448,7 @@ def get_security_test_result(
     test_id: str,
     db: DBSession,
 ) -> PromptInjectionTestResult:
+    test_id = validate_test_id(test_id)
     record = db.get(SecurityTestResultRecord, test_id)
 
     if record is None:
@@ -1436,6 +1466,7 @@ def update_security_test_review(
     request: ReviewUpdateRequest,
     db: DBSession,
 ) -> PromptInjectionTestResult:
+    test_id = validate_test_id(test_id)
     validate_review_status(request.review_status)
 
     record = db.get(SecurityTestResultRecord, test_id)
@@ -1461,6 +1492,7 @@ def delete_security_test_result(
     test_id: str,
     db: DBSession,
 ) -> dict[str, str]:
+    test_id = validate_test_id(test_id)
     record = db.get(SecurityTestResultRecord, test_id)
 
     if record is None:
