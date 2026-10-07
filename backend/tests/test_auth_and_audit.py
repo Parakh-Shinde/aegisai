@@ -10,7 +10,7 @@ from app.core.auth import (  # noqa: E402
     verify_password,
 )
 from app.db.models import AuditLog, Base, Organization, User, UserRole  # noqa: E402
-from app.services.audit import write_audit_log  # noqa: E402
+from app.services.audit import verify_audit_chain, write_audit_log  # noqa: E402
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -69,6 +69,10 @@ def test_audit_log_hashes_chain_within_organization() -> None:
         assert first.previous_hash is None
         assert second.previous_hash == first.entry_hash
         assert first.entry_hash != second.entry_hash
+        assert verify_audit_chain(db, organization.id).valid
+
+        second.details = {"tampered": True}
+        assert not verify_audit_chain(db, organization.id).valid
 
 
 def test_local_actor_is_available_from_the_request_db_session(monkeypatch) -> None:

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
+from app.core.evidence import protect_evidence, reveal_evidence
 from app.core.security import (
     MAX_MODEL_NAME_LENGTH,
     MAX_PROMPT_LENGTH,
@@ -199,8 +200,8 @@ def result_record_to_response(
         latency_ms=record.latency_ms,
         recommendation=record.recommendation,
         finding=record.finding,
-        prompt_sent=record.prompt_sent,
-        model_response=record.model_response,
+        prompt_sent=reveal_evidence(record.prompt_sent),
+        model_response=reveal_evidence(record.model_response),
         campaign_id=record.campaign_id,
         review_status=record.review_status,
         review_notes=record.review_notes,
@@ -853,8 +854,8 @@ def run_single_security_test(
         latency_ms=latency_ms,
         recommendation=recommendation,
         finding=finding,
-        prompt_sent=prompt_sent,
-        model_response=model_response,
+        prompt_sent=protect_evidence(prompt_sent),
+        model_response=protect_evidence(model_response),
         campaign_id=campaign_id,
         review_status="unreviewed",
         review_notes=None,

@@ -12,7 +12,7 @@ complete.
 | Roles | Admin, Security Analyst, and Viewer permissions enforced at API routes |
 | Tenancy | Every model, test result, campaign-derived query, and audit event is scoped to one organization |
 | Database | PostgreSQL through Docker Compose; Alembic owns the schema lifecycle |
-| Auditability | Hash-chained, organization-scoped audit events for sign-in, model registration, test runs, reviews, and deletion |
+| Auditability | Hash-chained, organization-scoped audit events for sign-in, model registration, test runs, reviews, and deletion; administrators can verify the chain through the API |
 | Model connectivity | Local endpoints by default; remote endpoints require an exact environment allowlist |
 | API hardening | Bounded Pydantic inputs, restrictive CORS origins, security response headers, pagination limits, and sanitized upstream errors |
 | Supply chain | CI runs Ruff, pytest, frontend lint/build, dependency audit, secret scan, and filesystem vulnerability scan |
@@ -46,9 +46,17 @@ flowchart TD
 ## Deployment requirements
 
 Production must set `AEGISAI_ENVIRONMENT=production`, which refuses to start unless
-authentication is enabled and the JWT secret is at least 32 characters. Keep all
-secrets in your platform's secret manager and inject them as environment variables;
-never commit `.env` or expose secrets through the frontend.
+authentication is enabled, the JWT secret is a unique value of at least 32 characters,
+and `AEGISAI_EVIDENCE_ENCRYPTION_KEY` is a valid Fernet key. It explicitly rejects the
+published development JWT fallback. Keep all secrets in your platform's secret manager
+and inject them as environment variables; never commit `.env` or expose secrets through
+the frontend.
+
+Model connectivity is deny-by-default. Loopback and `host.docker.internal` work for the
+local lab; a WSL/Windows-host address must be listed exactly in
+`AEGISAI_LOCAL_MODEL_ENDPOINTS`. Remote endpoints additionally require an exact
+allowlist and must resolve only to public IP addresses. This blocks the former broad
+`172.*` allowance.
 
 Terminate TLS at a trusted reverse proxy, set the CORS allowlist to the deployed UI
 origin, keep API ports private, and configure backups plus restore tests. Model
@@ -66,8 +74,8 @@ under the applicable policy, and record corrective actions.
 
 ## Next production milestones
 
-1. Encrypt sensitive evidence with customer-managed or platform-managed keys and
-   add a tested retention/deletion worker.
+1. Add a tested retention/deletion worker and a key-rotation migration for existing
+   encrypted evidence.
 2. Move campaigns to a Redis-backed worker queue with per-organization concurrency,
    payload, timeout, and egress limits.
 3. Version corpora and scoring rules; make release approval an explicit immutable

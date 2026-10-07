@@ -83,8 +83,23 @@ AEGISAI_ENVIRONMENT=production
 AEGISAI_AUTH_REQUIRED=true
 VITE_AUTH_REQUIRED=true
 AEGISAI_JWT_SECRET=<at-least-32-random-characters>
+AEGISAI_EVIDENCE_ENCRYPTION_KEY=<fernet-key-from-the-command-below>
 AEGISAI_BOOTSTRAP_TOKEN=<one-time-random-token>
 POSTGRES_PASSWORD=<strong-database-password>
+```
+
+Generate a production evidence-encryption key without putting it in Git:
+
+```bash
+docker compose run --rm --no-deps api python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+For Windows + WSL, also set the exact Windows Ollama address. Do not use a broad
+`172.*` network rule:
+
+```env
+OLLAMA_BASE_URL=http://<WINDOWS_HOST>:11434
+AEGISAI_LOCAL_MODEL_ENDPOINTS=http://<WINDOWS_HOST>:11434
 ```
 
 Apply the stack, then create the first organization administrator once:
@@ -98,7 +113,8 @@ curl -X POST http://127.0.0.1:8000/auth/bootstrap \
 
 Remove `AEGISAI_BOOTSTRAP_TOKEN` after the initial administrator is created, then
 run `make restart`. The login page uses `/auth/login` and stores only the short-lived
-JWT in the browser's local storage.
+JWT in the browser's local storage. For a public deployment, place the app behind a
+trusted TLS reverse proxy and plan a later move to HttpOnly session cookies.
 
 ## Database operations
 

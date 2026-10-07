@@ -428,9 +428,9 @@ make start
 
 Open the dashboard at `http://127.0.0.1:5173`.
 
-For Windows + WSL, set the Windows host IP as `OLLAMA_BASE_URL` in `.env` when
-needed. See [the Docker guide](docs/docker.md) for setup, health checks, and
-safe cleanup instructions.
+For Windows + WSL, set the Windows host IP as both `OLLAMA_BASE_URL` and
+`AEGISAI_LOCAL_MODEL_ENDPOINTS` in `.env` when needed. See [the Docker guide](docs/docker.md)
+for setup, health checks, and safe cleanup instructions.
 
 For the shared-deployment security model, production variables, RBAC roles, and
 operational limits, read [the v0.2 Production Foundation guide](docs/production-foundation.md).

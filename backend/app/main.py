@@ -27,6 +27,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # The dashboard is intentionally served on port 5173 while the API uses
         # port 8000. They are different browser origins but the same local site.
         response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        )
+        if request.url.path.startswith("/auth/"):
+            response.headers["Cache-Control"] = "no-store"
         return response
 
 
@@ -44,7 +49,7 @@ cors_origins = os.getenv(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in cors_origins if origin.strip()],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )

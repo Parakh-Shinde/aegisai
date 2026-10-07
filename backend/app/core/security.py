@@ -1,6 +1,8 @@
 import hmac
+import ipaddress
 import os
 import re
+import socket
 from urllib.parse import urlparse
 
 from fastapi import Header, HTTPException, status
@@ -41,14 +43,27 @@ def validate_identifier(value: str, field_name: str) -> str:
 def validate_local_http_url(url: str, field_name: str = "url") -> str:
     parsed = urlparse(url)
 
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError(f"Invalid {field_name}: expected an http(s) URL.")
 
     hostname = parsed.hostname.lower()
-    allowed_hosts = {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+    normalized_url = url.rstrip("/")
+    local_hosts = {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+    local_endpoints = {
+        item.strip().rstrip("/")
+        for item in os.getenv("AEGISAI_LOCAL_MODEL_ENDPOINTS", "").split(",")
+        if item.strip()
+    }
 
-    if hostname in allowed_hosts or hostname.startswith("172."):
-        return url.rstrip("/")
+    if hostname in local_hosts or normalized_url in local_endpoints:
+        return normalized_url
 
     if os.getenv("AEGISAI_ALLOW_REMOTE_OLLAMA") == "true":
         approved_endpoints = {
@@ -56,8 +71,8 @@ def validate_local_http_url(url: str, field_name: str = "url") -> str:
             for item in os.getenv("AEGISAI_APPROVED_MODEL_ENDPOINTS", "").split(",")
             if item.strip()
         }
-        normalized_url = url.rstrip("/")
         if normalized_url in approved_endpoints:
+            _require_public_endpoint(hostname, field_name)
             return normalized_url
         raise ValueError(
             f"Invalid {field_name}: endpoint is not in the approved allowlist."
@@ -66,6 +81,25 @@ def validate_local_http_url(url: str, field_name: str = "url") -> str:
     raise ValueError(
         f"Invalid {field_name}: remote model endpoints are disabled by default."
     )
+
+
+def _require_public_endpoint(hostname: str, field_name: str) -> None:
+    """Reject private/reserved addresses for remotely configured providers."""
+    try:
+        addresses = {
+            ipaddress.ip_address(result[4][0])
+            for result in socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        }
+    except socket.gaierror as exc:
+        raise ValueError(
+            f"Invalid {field_name}: hostname could not be resolved."
+        ) from exc
+
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError(
+            f"Invalid {field_name}: remote endpoints must resolve only to public "
+            "IP addresses."
+        )
 
 
 def safe_upstream_error(message: str) -> HTTPException:

@@ -10,6 +10,7 @@ from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.db.models import AuditLog, UserRole
+from app.services.audit import verify_audit_chain
 
 router = APIRouter(
     prefix="/audit-logs",
@@ -33,6 +34,12 @@ class AuditLogResponse(BaseModel):
     details: dict[str, str | int | bool | None]
     previous_hash: str | None
     entry_hash: str
+
+
+class AuditChainVerificationResponse(BaseModel):
+    valid: bool
+    checked_entries: int
+    invalid_entry_id: str | None = None
 
 
 @router.get("/", response_model=list[AuditLogResponse])
@@ -63,3 +70,15 @@ def list_audit_logs(
         )
         for record in records
     ]
+
+
+@router.get("/verify", response_model=AuditChainVerificationResponse)
+def verify_current_organization_audit_chain(
+    db: DBSession,
+) -> AuditChainVerificationResponse:
+    verification = verify_audit_chain(db, request_actor(db).organization_id)
+    return AuditChainVerificationResponse(
+        valid=verification.valid,
+        checked_entries=verification.checked_entries,
+        invalid_entry_id=verification.invalid_entry_id,
+    )
