@@ -1,4 +1,3 @@
-from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -155,12 +154,12 @@ def get_current_actor(
 
 def bind_request_actor(
     actor: Annotated[Actor, Depends(get_current_actor)],
-) -> Generator[None, None, None]:
-    token = _actor_context.set(actor)
-    try:
-        yield
-    finally:
-        _actor_context.reset(token)
+) -> None:
+    # FastAPI can finalize synchronous yield dependencies in a different
+    # context from the one that created their ContextVar token. Setting the
+    # request-local value without a yield avoids that cross-context reset.
+    # AnyIO runs each request in an isolated copied context.
+    _actor_context.set(actor)
 
 
 def current_actor() -> Actor:
