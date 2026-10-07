@@ -300,6 +300,13 @@ It helps the user run tests, inspect results, review findings, and understand mo
 The dashboard is designed to make the lab easier to use for someone testing a model from start to finish.
 
 ---
+## Demo Video
+
+AEGISAI includes a short demo video showing the lab workflow, dashboard, model testing, review process, and release gate.
+
+[Open AEGISAI Demo Video](frontend/public/demo.mp4)
+
+---
 
 ## Real-World Impact
 
