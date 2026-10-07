@@ -24,7 +24,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "camera=(), microphone=(), geolocation=()"
         )
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        # The dashboard is intentionally served on port 5173 while the API uses
+        # port 8000. They are different browser origins but the same local site.
+        response.headers["Cross-Origin-Resource-Policy"] = "same-site"
         return response
 
 
