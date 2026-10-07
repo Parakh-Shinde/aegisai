@@ -13,7 +13,7 @@ if DATABASE_URL is None:
     raise RuntimeError("DATABASE_URL is not configured")
 
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,

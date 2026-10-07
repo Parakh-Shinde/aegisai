@@ -1,5 +1,8 @@
+alembic
 fastapi
 httpx
+PyJWT
+pwdlib[argon2]
 psycopg[binary]
 pydantic
 python-dotenv

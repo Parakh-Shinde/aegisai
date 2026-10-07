@@ -7,11 +7,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.api.adapters import router as adapters_router
+from app.api.audit import router as audit_router
+from app.api.auth import router as auth_router
 from app.api.model_registry import router as model_registry_router
 from app.api.security_tests import router as security_tests_router
-from app.core.database import Base, engine
-
-Base.metadata.create_all(bind=engine)
+from app.db import models as db_models  # noqa: F401
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -23,7 +23,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=()"
         )
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
         return response
+
 
 app = FastAPI(
     title="AEGISAI API",
@@ -41,12 +44,14 @@ app.add_middleware(
     allow_origins=[origin.strip() for origin in cors_origins if origin.strip()],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(model_registry_router)
 app.include_router(adapters_router)
+app.include_router(audit_router)
+app.include_router(auth_router)
 app.include_router(security_tests_router)
 
 

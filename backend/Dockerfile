@@ -12,6 +12,8 @@ COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements-dev.txt
 
 COPY app ./app
+COPY migrations ./migrations
+COPY alembic.ini ./
 COPY scripts ./scripts
 COPY tests ./tests
 

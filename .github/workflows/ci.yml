@@ -21,7 +21,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install backend dependencies
-        run: pip install -r backend/requirements-dev.txt
+        run: pip install -r backend/requirements-dev.txt pip-audit
 
       - name: Run Ruff
         run: ruff check backend
@@ -31,6 +31,9 @@ jobs:
           DATABASE_URL: sqlite:///:memory:
           OLLAMA_BASE_URL: http://127.0.0.1:11434
         run: pytest
+
+      - name: Scan Python dependencies
+        run: pip-audit -r backend/requirements.txt
 
   frontend:
     runs-on: ubuntu-latest
@@ -51,5 +54,33 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Lint frontend
+        run: npm run lint
+
       - name: Build frontend
         run: npm run build
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: Filesystem vulnerability scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload vulnerability results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif

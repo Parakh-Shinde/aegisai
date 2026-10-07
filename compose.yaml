@@ -1,21 +1,43 @@
 name: aegisai
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegisai}
+      POSTGRES_USER: ${POSTGRES_USER:-aegisai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - aegisai-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   api:
     build:
       context: ./backend
     environment:
-      DATABASE_URL: sqlite:////data/aegisai.db
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-aegisai}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-aegisai}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       AEGISAI_CORS_ORIGINS: ${AEGISAI_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       AEGISAI_API_KEY: ${AEGISAI_API_KEY:-}
       AEGISAI_ALLOW_REMOTE_OLLAMA: ${AEGISAI_ALLOW_REMOTE_OLLAMA:-false}
+      AEGISAI_APPROVED_MODEL_ENDPOINTS: ${AEGISAI_APPROVED_MODEL_ENDPOINTS:-}
+      AEGISAI_ENVIRONMENT: ${AEGISAI_ENVIRONMENT:-development}
+      AEGISAI_AUTH_REQUIRED: ${AEGISAI_AUTH_REQUIRED:-false}
+      AEGISAI_JWT_SECRET: ${AEGISAI_JWT_SECRET:-development-only-secret-change-before-production}
+      AEGISAI_BOOTSTRAP_TOKEN: ${AEGISAI_BOOTSTRAP_TOKEN:-}
     extra_hosts:
       - host.docker.internal:host-gateway
     ports:
       - 127.0.0.1:8000:8000
-    volumes:
-      - aegisai-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     healthcheck:
       test:
         - CMD
@@ -33,6 +55,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://127.0.0.1:8000}
+        VITE_AUTH_REQUIRED: ${VITE_AUTH_REQUIRED:-false}
     depends_on:
       api:
         condition: service_healthy
@@ -49,4 +72,4 @@ services:
       - tools
 
 volumes:
-  aegisai-data:
+  aegisai-postgres:

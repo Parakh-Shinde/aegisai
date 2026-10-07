@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from app.core.auth import bind_request_actor, require_roles
 from app.core.security import require_api_key, safe_upstream_error
+from app.db.models import UserRole
 from app.services.ollama_adapter import OllamaAdapter
 
-router = APIRouter(prefix="/adapters", tags=["Adapters"])
+router = APIRouter(
+    prefix="/adapters",
+    tags=["Adapters"],
+    dependencies=[Depends(require_api_key), Depends(bind_request_actor)],
+)
 
 
 class OllamaGenerateRequest(BaseModel):
@@ -18,7 +24,10 @@ def ollama_health() -> dict[str, str]:
     return adapter.health()
 
 
-@router.get("/ollama/models", dependencies=[Depends(require_api_key)])
+@router.get(
+    "/ollama/models",
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
 def ollama_models() -> dict:
     adapter = OllamaAdapter()
 
@@ -28,7 +37,10 @@ def ollama_models() -> dict:
         raise safe_upstream_error("Ollama model discovery failed.") from exc
 
 
-@router.post("/ollama/generate", dependencies=[Depends(require_api_key)])
+@router.post(
+    "/ollama/generate",
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
 def ollama_generate(request: OllamaGenerateRequest) -> dict:
     adapter = OllamaAdapter()
 

@@ -52,3 +52,19 @@ def test_ollama_url_allows_local_and_wsl_hosts() -> None:
     assert validate_local_http_url("http://172.22.160.1:11434") == (
         "http://172.22.160.1:11434"
     )
+
+
+def test_remote_endpoint_requires_exact_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_ALLOW_REMOTE_OLLAMA", "true")
+    monkeypatch.setenv(
+        "AEGISAI_APPROVED_MODEL_ENDPOINTS",
+        "https://models.example.com/ollama",
+    )
+
+    assert validate_local_http_url("https://models.example.com/ollama/") == (
+        "https://models.example.com/ollama"
+    )
+    with pytest.raises(ValueError):
+        validate_local_http_url("https://models.example.com/other")

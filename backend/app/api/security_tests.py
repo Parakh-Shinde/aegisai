@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import bind_request_actor, current_actor, require_roles
 from app.core.database import get_db
 from app.core.security import (
     MAX_MODEL_NAME_LENGTH,
@@ -19,13 +20,14 @@ from app.core.security import (
     safe_upstream_error,
     validate_identifier,
 )
-from app.db.models import SecurityTestResultRecord
+from app.db.models import SecurityTestResultRecord, UserRole
+from app.services.audit import write_audit_log
 from app.services.ollama_adapter import OllamaAdapter
 
 router = APIRouter(
     prefix="/security-tests",
     tags=["Security Tests"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_api_key), Depends(bind_request_actor)],
 )
 
 DBSession = Annotated[Session, Depends(get_db)]
@@ -38,6 +40,12 @@ VALID_REVIEW_STATUSES = {
     "false_positive",
     "needs_retest",
 }
+
+
+def tenant_records_query():
+    return select(SecurityTestResultRecord).where(
+        SecurityTestResultRecord.organization_id == current_actor().organization_id
+    )
 
 
 class SecurityTestRequest(BaseModel):
@@ -738,9 +746,7 @@ def build_release_gate_response(
     total_tests = len(records)
     safety_score = calculate_safety_score(records)
     leaked_tests = sum(1 for record in records if record.risk_status == "leaked")
-    uncertain_tests = sum(
-        1 for record in records if record.risk_status == "uncertain"
-    )
+    uncertain_tests = sum(1 for record in records if record.risk_status == "uncertain")
     high_risk_tests = sum(1 for record in records if record.severity == "high")
     unreviewed_tests = sum(
         1 for record in records if record.review_status == "unreviewed"
@@ -814,6 +820,7 @@ def run_single_security_test(
     user_prompt: str,
     campaign_id: str | None = None,
 ) -> SecurityTestResultResponse:
+    actor = current_actor()
     adapter = OllamaAdapter()
     prompt_sent = f"{instruction} User message: {user_prompt}"
 
@@ -835,6 +842,8 @@ def run_single_security_test(
 
     record = SecurityTestResultRecord(
         test_id=f"test_{uuid4().hex[:12]}",
+        organization_id=actor.organization_id,
+        created_by_user_id=actor.user_id,
         created_at=datetime.now(UTC),
         test_type=test_type,
         test_category=test_category,
@@ -853,6 +862,15 @@ def run_single_security_test(
     )
 
     db.add(record)
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="security_test.run",
+        resource_type="security_test_result",
+        resource_id=record.test_id,
+        details={"test_category": test_category, "model": model},
+    )
     db.commit()
     db.refresh(record)
 
@@ -864,7 +882,11 @@ def get_basic_corpus() -> list[dict[str, str]]:
     return load_corpus_suite("basic_safety_suite")
 
 
-@router.post("/prompt-injection", response_model=SecurityTestResultResponse)
+@router.post(
+    "/prompt-injection",
+    response_model=SecurityTestResultResponse,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
 def run_prompt_injection_test(
     request: SecurityTestRequest,
     db: DBSession,
@@ -882,7 +904,11 @@ def run_prompt_injection_test(
     )
 
 
-@router.post("/sensitive-data", response_model=SecurityTestResultResponse)
+@router.post(
+    "/sensitive-data",
+    response_model=SecurityTestResultResponse,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
 def run_sensitive_data_test(
     request: SecurityTestRequest,
     db: DBSession,
@@ -901,7 +927,11 @@ def run_sensitive_data_test(
     )
 
 
-@router.post("/jailbreak", response_model=SecurityTestResultResponse)
+@router.post(
+    "/jailbreak",
+    response_model=SecurityTestResultResponse,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
 def run_jailbreak_test(
     request: SecurityTestRequest,
     db: DBSession,
@@ -920,7 +950,11 @@ def run_jailbreak_test(
     )
 
 
-@router.post("/suite/basic", response_model=BasicSuiteResponse)
+@router.post(
+    "/suite/basic",
+    response_model=BasicSuiteResponse,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
 def run_basic_suite(
     request: CorpusSuiteRequest,
     db: DBSession,
@@ -965,7 +999,7 @@ def list_security_test_results(
     offset: int = Query(default=0, ge=0),
 ) -> list[SecurityTestResultResponse]:
     records = db.scalars(
-        select(SecurityTestResultRecord)
+        tenant_records_query()
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -980,7 +1014,9 @@ def get_security_test_result(
     db: DBSession,
 ) -> SecurityTestResultResponse:
     validate_identifier(test_id, "test_id")
-    record = db.get(SecurityTestResultRecord, test_id)
+    record = db.scalar(
+        tenant_records_query().where(SecurityTestResultRecord.test_id == test_id)
+    )
 
     if record is None:
         raise HTTPException(
@@ -991,13 +1027,18 @@ def get_security_test_result(
     return result_record_to_response(record)
 
 
-@router.delete("/results/{test_id}")
+@router.delete(
+    "/results/{test_id}",
+    dependencies=[Depends(require_roles(UserRole.ADMIN))],
+)
 def delete_security_test_result(
     test_id: str,
     db: DBSession,
 ) -> dict[str, str]:
     validate_identifier(test_id, "test_id")
-    record = db.get(SecurityTestResultRecord, test_id)
+    record = db.scalar(
+        tenant_records_query().where(SecurityTestResultRecord.test_id == test_id)
+    )
 
     if record is None:
         raise HTTPException(
@@ -1005,6 +1046,15 @@ def delete_security_test_result(
             detail=f"Security test result not found: {test_id}",
         )
 
+    actor = current_actor()
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="security_test.delete",
+        resource_type="security_test_result",
+        resource_id=record.test_id,
+    )
     db.delete(record)
     db.commit()
 
@@ -1026,7 +1076,7 @@ def list_security_test_results_by_category(
 ) -> list[SecurityTestResultResponse]:
     validate_identifier(test_category, "test_category")
     records = db.scalars(
-        select(SecurityTestResultRecord)
+        tenant_records_query()
         .where(SecurityTestResultRecord.test_category == test_category)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1048,7 +1098,7 @@ def list_security_test_results_by_risk(
 ) -> list[SecurityTestResultResponse]:
     validate_identifier(risk_status, "risk_status")
     records = db.scalars(
-        select(SecurityTestResultRecord)
+        tenant_records_query()
         .where(SecurityTestResultRecord.risk_status == risk_status)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1070,7 +1120,7 @@ def list_security_test_results_by_severity(
 ) -> list[SecurityTestResultResponse]:
     validate_identifier(severity, "severity")
     records = db.scalars(
-        select(SecurityTestResultRecord)
+        tenant_records_query()
         .where(SecurityTestResultRecord.severity == severity)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1097,7 +1147,7 @@ def list_security_test_results_by_review_status(
         )
 
     records = db.scalars(
-        select(SecurityTestResultRecord)
+        tenant_records_query()
         .where(SecurityTestResultRecord.review_status == review_status)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1107,7 +1157,11 @@ def list_security_test_results_by_review_status(
     return [result_record_to_response(record) for record in records]
 
 
-@router.patch("/results/{test_id}/review", response_model=SecurityTestResultResponse)
+@router.patch(
+    "/results/{test_id}/review",
+    response_model=SecurityTestResultResponse,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
 def update_security_test_review(
     test_id: str,
     request: ReviewUpdateRequest,
@@ -1121,7 +1175,9 @@ def update_security_test_review(
             detail=f"Invalid review status: {request.review_status}",
         )
 
-    record = db.get(SecurityTestResultRecord, test_id)
+    record = db.scalar(
+        tenant_records_query().where(SecurityTestResultRecord.test_id == test_id)
+    )
 
     if record is None:
         raise HTTPException(
@@ -1132,6 +1188,18 @@ def update_security_test_review(
     record.review_status = request.review_status
     record.review_notes = request.review_notes
     record.reviewed_at = datetime.now(UTC)
+    record.reviewed_by_user_id = current_actor().user_id
+
+    actor = current_actor()
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="security_test.review",
+        resource_type="security_test_result",
+        resource_id=record.test_id,
+        details={"review_status": request.review_status},
+    )
 
     db.commit()
     db.refresh(record)
@@ -1141,7 +1209,7 @@ def update_security_test_review(
 
 @router.get("/summary", response_model=SecurityTestSummary)
 def get_security_test_summary(db: DBSession) -> SecurityTestSummary:
-    records = db.scalars(select(SecurityTestResultRecord)).all()
+    records = db.scalars(tenant_records_query()).all()
 
     return SecurityTestSummary(
         total_tests=len(records),
@@ -1155,9 +1223,7 @@ def get_security_test_summary(db: DBSession) -> SecurityTestSummary:
             1 for record in records if record.test_category == "prompt_injection"
         ),
         sensitive_data_exposure=sum(
-            1
-            for record in records
-            if record.test_category == "sensitive_data_exposure"
+            1 for record in records if record.test_category == "sensitive_data_exposure"
         ),
         jailbreak=sum(1 for record in records if record.test_category == "jailbreak"),
         privacy_leakage=sum(
@@ -1171,7 +1237,7 @@ def get_security_test_summary(db: DBSession) -> SecurityTestSummary:
 
 @router.get("/dashboard", response_model=SecurityDashboard)
 def get_security_dashboard(db: DBSession) -> SecurityDashboard:
-    records = db.scalars(select(SecurityTestResultRecord)).all()
+    records = db.scalars(tenant_records_query()).all()
 
     total_tests = len(records)
     blocked = sum(1 for record in records if record.risk_status == "blocked")
@@ -1192,7 +1258,7 @@ def get_security_dashboard(db: DBSession) -> SecurityDashboard:
 @router.get("/scorecard", response_model=ScorecardResponse)
 def get_model_scorecard(model: str, db: DBSession) -> ScorecardResponse:
     records = db.scalars(
-        select(SecurityTestResultRecord).where(SecurityTestResultRecord.model == model)
+        tenant_records_query().where(SecurityTestResultRecord.model == model)
     ).all()
 
     return build_scorecard(records, model=model)
@@ -1201,7 +1267,7 @@ def get_model_scorecard(model: str, db: DBSession) -> ScorecardResponse:
 @router.get("/release-gate", response_model=ReleaseGateResponse)
 def get_release_gate(model: str, db: DBSession) -> ReleaseGateResponse:
     records = db.scalars(
-        select(SecurityTestResultRecord).where(SecurityTestResultRecord.model == model)
+        tenant_records_query().where(SecurityTestResultRecord.model == model)
     ).all()
 
     return build_release_gate_response(model=model, records=records)
@@ -1215,7 +1281,7 @@ def get_campaign_results(
     validate_identifier(campaign_id, "campaign_id")
 
     records = db.scalars(
-        select(SecurityTestResultRecord)
+        tenant_records_query()
         .where(SecurityTestResultRecord.campaign_id == campaign_id)
         .order_by(SecurityTestResultRecord.created_at.desc())
     ).all()
@@ -1234,7 +1300,7 @@ def get_campaign_review_summary(
     validate_identifier(campaign_id, "campaign_id")
 
     records = db.scalars(
-        select(SecurityTestResultRecord).where(
+        tenant_records_query().where(
             SecurityTestResultRecord.campaign_id == campaign_id
         )
     ).all()
@@ -1253,7 +1319,7 @@ def get_campaign_release_gate(
     validate_identifier(campaign_id, "campaign_id")
 
     records = db.scalars(
-        select(SecurityTestResultRecord).where(
+        tenant_records_query().where(
             SecurityTestResultRecord.campaign_id == campaign_id
         )
     ).all()
@@ -1269,7 +1335,7 @@ def get_campaign_release_gate(
 
 @router.get("/models/compare", response_model=list[ModelComparisonResponse])
 def compare_models(db: DBSession) -> list[ModelComparisonResponse]:
-    records = db.scalars(select(SecurityTestResultRecord)).all()
+    records = db.scalars(tenant_records_query()).all()
     models = sorted({record.model for record in records})
 
     comparisons: list[ModelComparisonResponse] = []
@@ -1277,9 +1343,7 @@ def compare_models(db: DBSession) -> list[ModelComparisonResponse]:
     for model in models:
         model_records = [record for record in records if record.model == model]
         total_tests = len(model_records)
-        blocked = sum(
-            1 for record in model_records if record.risk_status == "blocked"
-        )
+        blocked = sum(1 for record in model_records if record.risk_status == "blocked")
         uncertain = sum(
             1 for record in model_records if record.risk_status == "uncertain"
         )

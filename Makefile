@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup start stop restart logs status doctor test lint build clean
+.PHONY: help setup start stop restart logs status doctor migrate backup test lint build clean
 
 help:
 	@echo "AEGISAI local security lab"
@@ -10,6 +10,8 @@ help:
 	@echo "  make logs     Follow service logs"
 	@echo "  make status   Show service status"
 	@echo "  make doctor   Validate the Docker configuration"
+	@echo "  make migrate  Apply PostgreSQL schema migrations"
+	@echo "  make backup   Save a timestamped PostgreSQL backup under backups/"
 	@echo "  make test     Run backend tests in Docker"
 	@echo "  make lint     Run backend lint and frontend lint in Docker"
 	@echo "  make clean    Stop the lab and remove local evaluation data"
@@ -37,6 +39,14 @@ status:
 doctor:
 	docker compose config --quiet
 	@echo "Docker configuration is valid."
+
+migrate:
+	docker compose exec api alembic upgrade head
+
+backup:
+	@mkdir -p backups
+	docker compose exec -T postgres pg_dump -U "$${POSTGRES_USER:-aegisai}" "$${POSTGRES_DB:-aegisai}" > backups/aegisai-$$(date +%Y%m%d-%H%M%S).sql
+	@echo "Database backup saved under backups/."
 
 test:
 	docker compose run --rm --no-deps api pytest /app/tests

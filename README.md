@@ -432,6 +432,9 @@ For Windows + WSL, set the Windows host IP as `OLLAMA_BASE_URL` in `.env` when
 needed. See [the Docker guide](docs/docker.md) for setup, health checks, and
 safe cleanup instructions.
 
+For the shared-deployment security model, production variables, RBAC roles, and
+operational limits, read [the v0.2 Production Foundation guide](docs/production-foundation.md).
+
 ---
 
 ### 1. Start Ollama On Windows

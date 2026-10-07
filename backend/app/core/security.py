@@ -51,7 +51,17 @@ def validate_local_http_url(url: str, field_name: str = "url") -> str:
         return url.rstrip("/")
 
     if os.getenv("AEGISAI_ALLOW_REMOTE_OLLAMA") == "true":
-        return url.rstrip("/")
+        approved_endpoints = {
+            item.strip().rstrip("/")
+            for item in os.getenv("AEGISAI_APPROVED_MODEL_ENDPOINTS", "").split(",")
+            if item.strip()
+        }
+        normalized_url = url.rstrip("/")
+        if normalized_url in approved_endpoints:
+            return normalized_url
+        raise ValueError(
+            f"Invalid {field_name}: endpoint is not in the approved allowlist."
+        )
 
     raise ValueError(
         f"Invalid {field_name}: remote model endpoints are disabled by default."

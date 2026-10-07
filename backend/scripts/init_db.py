@@ -1,4 +1,4 @@
-"""Initialize AEGISAI database tables.
+"""Apply AEGISAI database migrations.
 
 Run from the repository root:
 
@@ -11,13 +11,13 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app.core.database import Base, engine  # noqa: E402
-from app.db import models  # noqa: F401, E402
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
 
 
 def main() -> None:
-    Base.metadata.create_all(bind=engine)
-    print("AEGISAI database tables are ready.")
+    command.upgrade(Config(str(BACKEND_DIR / "alembic.ini")), "head")
+    print("AEGISAI database migrations are up to date.")
 
 
 if __name__ == "__main__":

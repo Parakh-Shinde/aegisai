@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.security import validate_local_http_url
 
 
 class ModelCapabilityProfile(BaseModel):
@@ -53,3 +55,8 @@ class ModelRegistrationRequest(BaseModel):
     deployment_type: str = Field(..., min_length=1, max_length=50, examples=["local"])
     capabilities: ModelCapabilityProfile
     authentication: str = Field(default="none", max_length=50, examples=["none"])
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, value: str) -> str:
+        return validate_local_http_url(value, "endpoint")
