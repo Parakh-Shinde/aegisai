@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 type TestType = "prompt-injection" | "sensitive-data" | "jailbreak";
 
@@ -433,13 +433,13 @@ export default function App() {
   }
 
   useEffect(() => {
-    void refreshDashboard();
-    void checkHealth();
-  }, []);
+    const startupTimer = window.setTimeout(() => {
+      void refreshDashboard();
+      void checkHealth();
+    }, 0);
 
-  useEffect(() => {
-    setUserPrompt(DEFAULT_PROMPTS[testType]);
-  }, [testType]);
+    return () => window.clearTimeout(startupTimer);
+  }, []);
 
   return (
     <main className="lab-layout">
@@ -585,7 +585,11 @@ export default function App() {
                     Test Type
                     <select
                       value={testType}
-                      onChange={(event) => setTestType(event.target.value as TestType)}
+                      onChange={(event) => {
+                        const nextTestType = event.target.value as TestType;
+                        setTestType(nextTestType);
+                        setUserPrompt(DEFAULT_PROMPTS[nextTestType]);
+                      }}
                     >
                       <option value="prompt-injection">Prompt Injection</option>
                       <option value="sensitive-data">Sensitive Data</option>

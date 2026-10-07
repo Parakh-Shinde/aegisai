@@ -415,6 +415,25 @@ aegisai/
 
 ## How To Run The Lab
 
+### Recommended: One-Command Local Launch
+
+AEGISAI can run as a local Docker-based tool. The dashboard and API bind only
+to `127.0.0.1`, and your Ollama endpoint remains local by default.
+
+```bash
+git clone https://github.com/Parakh-Shinde/aegisai.git
+cd aegisai
+make start
+```
+
+Open the dashboard at `http://127.0.0.1:5173`.
+
+For Windows + WSL, set the Windows host IP as `OLLAMA_BASE_URL` in `.env` when
+needed. See [the Docker guide](docs/docker.md) for setup, health checks, and
+safe cleanup instructions.
+
+---
+
 ### 1. Start Ollama On Windows
 
 Open Windows PowerShell:

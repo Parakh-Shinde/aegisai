@@ -22,5 +22,13 @@ backend/nano
 backend/app/_init_.py
 backend/app/api/_init_.py
 backend/app/core/_init_.py
-package-lock.json
 *.bak
+# Local configuration and generated data
+.env
+*.db
+backend/*.db
+frontend/node_modules/
+frontend/dist/
+backend/.venv/
+__pycache__/
+*.py[cod]

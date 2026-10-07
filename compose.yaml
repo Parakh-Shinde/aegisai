@@ -1,0 +1,52 @@
+name: aegisai
+
+services:
+  api:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: sqlite:////data/aegisai.db
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      AEGISAI_CORS_ORIGINS: ${AEGISAI_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      AEGISAI_API_KEY: ${AEGISAI_API_KEY:-}
+      AEGISAI_ALLOW_REMOTE_OLLAMA: ${AEGISAI_ALLOW_REMOTE_OLLAMA:-false}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    ports:
+      - 127.0.0.1:8000:8000
+    volumes:
+      - aegisai-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://127.0.0.1:8000}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:5173:8080
+    restart: unless-stopped
+
+  web-check:
+    build:
+      context: ./frontend
+      target: build
+    command: npm run lint
+    profiles:
+      - tools
+
+volumes:
+  aegisai-data:
