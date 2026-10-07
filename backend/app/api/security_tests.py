@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.auth import bind_request_actor, current_actor, require_roles
+from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.security import (
     MAX_MODEL_NAME_LENGTH,
@@ -42,9 +42,9 @@ VALID_REVIEW_STATUSES = {
 }
 
 
-def tenant_records_query():
+def tenant_records_query(db: Session):
     return select(SecurityTestResultRecord).where(
-        SecurityTestResultRecord.organization_id == current_actor().organization_id
+        SecurityTestResultRecord.organization_id == request_actor(db).organization_id
     )
 
 
@@ -820,7 +820,7 @@ def run_single_security_test(
     user_prompt: str,
     campaign_id: str | None = None,
 ) -> SecurityTestResultResponse:
-    actor = current_actor()
+    actor = request_actor(db)
     adapter = OllamaAdapter()
     prompt_sent = f"{instruction} User message: {user_prompt}"
 
@@ -999,7 +999,7 @@ def list_security_test_results(
     offset: int = Query(default=0, ge=0),
 ) -> list[SecurityTestResultResponse]:
     records = db.scalars(
-        tenant_records_query()
+        tenant_records_query(db)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -1015,7 +1015,7 @@ def get_security_test_result(
 ) -> SecurityTestResultResponse:
     validate_identifier(test_id, "test_id")
     record = db.scalar(
-        tenant_records_query().where(SecurityTestResultRecord.test_id == test_id)
+        tenant_records_query(db).where(SecurityTestResultRecord.test_id == test_id)
     )
 
     if record is None:
@@ -1037,7 +1037,7 @@ def delete_security_test_result(
 ) -> dict[str, str]:
     validate_identifier(test_id, "test_id")
     record = db.scalar(
-        tenant_records_query().where(SecurityTestResultRecord.test_id == test_id)
+        tenant_records_query(db).where(SecurityTestResultRecord.test_id == test_id)
     )
 
     if record is None:
@@ -1046,7 +1046,7 @@ def delete_security_test_result(
             detail=f"Security test result not found: {test_id}",
         )
 
-    actor = current_actor()
+    actor = request_actor(db)
     write_audit_log(
         db,
         organization_id=actor.organization_id,
@@ -1076,7 +1076,7 @@ def list_security_test_results_by_category(
 ) -> list[SecurityTestResultResponse]:
     validate_identifier(test_category, "test_category")
     records = db.scalars(
-        tenant_records_query()
+        tenant_records_query(db)
         .where(SecurityTestResultRecord.test_category == test_category)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1098,7 +1098,7 @@ def list_security_test_results_by_risk(
 ) -> list[SecurityTestResultResponse]:
     validate_identifier(risk_status, "risk_status")
     records = db.scalars(
-        tenant_records_query()
+        tenant_records_query(db)
         .where(SecurityTestResultRecord.risk_status == risk_status)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1120,7 +1120,7 @@ def list_security_test_results_by_severity(
 ) -> list[SecurityTestResultResponse]:
     validate_identifier(severity, "severity")
     records = db.scalars(
-        tenant_records_query()
+        tenant_records_query(db)
         .where(SecurityTestResultRecord.severity == severity)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1147,7 +1147,7 @@ def list_security_test_results_by_review_status(
         )
 
     records = db.scalars(
-        tenant_records_query()
+        tenant_records_query(db)
         .where(SecurityTestResultRecord.review_status == review_status)
         .order_by(SecurityTestResultRecord.created_at.desc())
         .offset(offset)
@@ -1176,7 +1176,7 @@ def update_security_test_review(
         )
 
     record = db.scalar(
-        tenant_records_query().where(SecurityTestResultRecord.test_id == test_id)
+        tenant_records_query(db).where(SecurityTestResultRecord.test_id == test_id)
     )
 
     if record is None:
@@ -1188,9 +1188,9 @@ def update_security_test_review(
     record.review_status = request.review_status
     record.review_notes = request.review_notes
     record.reviewed_at = datetime.now(UTC)
-    record.reviewed_by_user_id = current_actor().user_id
+    record.reviewed_by_user_id = request_actor(db).user_id
 
-    actor = current_actor()
+    actor = request_actor(db)
     write_audit_log(
         db,
         organization_id=actor.organization_id,
@@ -1209,7 +1209,7 @@ def update_security_test_review(
 
 @router.get("/summary", response_model=SecurityTestSummary)
 def get_security_test_summary(db: DBSession) -> SecurityTestSummary:
-    records = db.scalars(tenant_records_query()).all()
+    records = db.scalars(tenant_records_query(db)).all()
 
     return SecurityTestSummary(
         total_tests=len(records),
@@ -1237,7 +1237,7 @@ def get_security_test_summary(db: DBSession) -> SecurityTestSummary:
 
 @router.get("/dashboard", response_model=SecurityDashboard)
 def get_security_dashboard(db: DBSession) -> SecurityDashboard:
-    records = db.scalars(tenant_records_query()).all()
+    records = db.scalars(tenant_records_query(db)).all()
 
     total_tests = len(records)
     blocked = sum(1 for record in records if record.risk_status == "blocked")
@@ -1258,7 +1258,7 @@ def get_security_dashboard(db: DBSession) -> SecurityDashboard:
 @router.get("/scorecard", response_model=ScorecardResponse)
 def get_model_scorecard(model: str, db: DBSession) -> ScorecardResponse:
     records = db.scalars(
-        tenant_records_query().where(SecurityTestResultRecord.model == model)
+        tenant_records_query(db).where(SecurityTestResultRecord.model == model)
     ).all()
 
     return build_scorecard(records, model=model)
@@ -1267,7 +1267,7 @@ def get_model_scorecard(model: str, db: DBSession) -> ScorecardResponse:
 @router.get("/release-gate", response_model=ReleaseGateResponse)
 def get_release_gate(model: str, db: DBSession) -> ReleaseGateResponse:
     records = db.scalars(
-        tenant_records_query().where(SecurityTestResultRecord.model == model)
+        tenant_records_query(db).where(SecurityTestResultRecord.model == model)
     ).all()
 
     return build_release_gate_response(model=model, records=records)
@@ -1281,7 +1281,7 @@ def get_campaign_results(
     validate_identifier(campaign_id, "campaign_id")
 
     records = db.scalars(
-        tenant_records_query()
+        tenant_records_query(db)
         .where(SecurityTestResultRecord.campaign_id == campaign_id)
         .order_by(SecurityTestResultRecord.created_at.desc())
     ).all()
@@ -1300,7 +1300,7 @@ def get_campaign_review_summary(
     validate_identifier(campaign_id, "campaign_id")
 
     records = db.scalars(
-        tenant_records_query().where(
+        tenant_records_query(db).where(
             SecurityTestResultRecord.campaign_id == campaign_id
         )
     ).all()
@@ -1319,7 +1319,7 @@ def get_campaign_release_gate(
     validate_identifier(campaign_id, "campaign_id")
 
     records = db.scalars(
-        tenant_records_query().where(
+        tenant_records_query(db).where(
             SecurityTestResultRecord.campaign_id == campaign_id
         )
     ).all()
@@ -1335,7 +1335,7 @@ def get_campaign_release_gate(
 
 @router.get("/models/compare", response_model=list[ModelComparisonResponse])
 def compare_models(db: DBSession) -> list[ModelComparisonResponse]:
-    records = db.scalars(tenant_records_query()).all()
+    records = db.scalars(tenant_records_query(db)).all()
     models = sorted({record.model for record in records})
 
     comparisons: list[ModelComparisonResponse] = []

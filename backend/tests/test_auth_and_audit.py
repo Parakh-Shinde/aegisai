@@ -4,7 +4,9 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from app.core.auth import (  # noqa: E402
     create_access_token,
+    get_current_actor,
     hash_password,
+    request_actor,
     verify_password,
 )
 from app.db.models import AuditLog, Base, Organization, User, UserRole  # noqa: E402
@@ -67,3 +69,14 @@ def test_audit_log_hashes_chain_within_organization() -> None:
         assert first.previous_hash is None
         assert second.previous_hash == first.entry_hash
         assert first.entry_hash != second.entry_hash
+
+
+def test_local_actor_is_available_from_the_request_db_session(monkeypatch) -> None:
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "false")
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        actor = get_current_actor(db, None)
+
+        assert request_actor(db) == actor

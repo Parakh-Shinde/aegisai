@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.auth import bind_request_actor, current_actor, require_roles
+from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.db.models import AuditLog, UserRole
@@ -41,7 +41,7 @@ def list_audit_logs(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[AuditLogResponse]:
-    actor = current_actor()
+    actor = request_actor(db)
     records = db.scalars(
         select(AuditLog)
         .where(AuditLog.organization_id == actor.organization_id)

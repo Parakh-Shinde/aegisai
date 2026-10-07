@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.auth import bind_request_actor, current_actor, require_roles
+from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.db.models import RegisteredModelRecord, UserRole
@@ -52,7 +52,7 @@ def save_registered_model(
     db: Session,
     model: ModelRegistrationRequest,
 ) -> RegisteredModelRecord:
-    actor = current_actor()
+    actor = request_actor(db)
     model_id = build_model_id(model.provider, model.name, model.version)
     existing = db.scalar(
         select(RegisteredModelRecord).where(
@@ -114,7 +114,7 @@ def discover_ollama_models(db: DBSession) -> list[RegisteredModel]:
         existing = db.scalar(
             select(RegisteredModelRecord).where(
                 RegisteredModelRecord.organization_id
-                == current_actor().organization_id,
+                == request_actor(db).organization_id,
                 RegisteredModelRecord.model_id == model_id,
             )
         )
@@ -140,7 +140,7 @@ def discover_ollama_models(db: DBSession) -> list[RegisteredModel]:
 
 @router.get("/", response_model=list[RegisteredModel])
 def list_models(db: DBSession) -> list[RegisteredModel]:
-    actor = current_actor()
+    actor = request_actor(db)
     records = db.scalars(
         select(RegisteredModelRecord)
         .where(RegisteredModelRecord.organization_id == actor.organization_id)
@@ -151,7 +151,7 @@ def list_models(db: DBSession) -> list[RegisteredModel]:
 
 @router.get("/{model_id}", response_model=RegisteredModel)
 def get_model(model_id: str, db: DBSession) -> RegisteredModel:
-    actor = current_actor()
+    actor = request_actor(db)
     record = db.scalar(
         select(RegisteredModelRecord).where(
             RegisteredModelRecord.organization_id == actor.organization_id,

@@ -1,4 +1,3 @@
-from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -16,7 +15,7 @@ from app.db.models import Organization, User, UserRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
 password_hasher = PasswordHash.recommended()
-_actor_context: ContextVar["Actor | None"] = ContextVar("aegisai_actor", default=None)
+ACTOR_SESSION_KEY = "aegisai_request_actor"
 
 
 @dataclass(frozen=True)
@@ -106,7 +105,9 @@ def get_current_actor(
     settings = get_settings()
 
     if not settings.auth_required:
-        return get_or_create_local_actor(db)
+        actor = get_or_create_local_actor(db)
+        db.info[ACTOR_SESSION_KEY] = actor
+        return actor
 
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
@@ -144,34 +145,33 @@ def get_current_actor(
             detail="User account is inactive or unavailable.",
         )
 
-    return Actor(
+    actor = Actor(
         user_id=user.id,
         organization_id=user.organization_id,
         role=user.role,
         email=user.email,
     )
+    db.info[ACTOR_SESSION_KEY] = actor
+    return actor
 
 
 def bind_request_actor(
     actor: Annotated[Actor, Depends(get_current_actor)],
 ) -> None:
-    # FastAPI can finalize synchronous yield dependencies in a different
-    # context from the one that created their ContextVar token. Setting the
-    # request-local value without a yield avoids that cross-context reset.
-    # AnyIO runs each request in an isolated copied context.
-    _actor_context.set(actor)
+    # get_current_actor attaches this actor to the cached request DB session.
+    # Keeping this dependency makes every protected router authenticate first.
+    del actor
 
 
-def current_actor() -> Actor:
-    actor = _actor_context.get()
+def request_actor(db: Session) -> Actor:
+    actor = db.info.get(ACTOR_SESSION_KEY)
     if actor is None:
         raise RuntimeError("No authenticated AEGISAI actor is bound to this request.")
     return actor
 
 
 def require_roles(*allowed_roles: UserRole):
-    def dependency() -> None:
-        actor = current_actor()
+    def dependency(actor: Annotated[Actor, Depends(get_current_actor)]) -> None:
         if actor.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
