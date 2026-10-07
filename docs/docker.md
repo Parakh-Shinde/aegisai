@@ -86,6 +86,9 @@ AEGISAI_JWT_SECRET=<at-least-32-random-characters>
 AEGISAI_EVIDENCE_ENCRYPTION_KEY=<fernet-key-from-the-command-below>
 AEGISAI_BOOTSTRAP_TOKEN=<one-time-random-token>
 POSTGRES_PASSWORD=<strong-database-password>
+AEGISAI_CORS_ORIGINS=https://aegisai.example.com
+AEGISAI_TRUSTED_HOSTS=api.aegisai.example.com,127.0.0.1,localhost
+AEGISAI_EXPOSE_API_DOCS=false
 ```
 
 Generate a production evidence-encryption key without putting it in Git:
@@ -113,7 +116,7 @@ curl -X POST http://127.0.0.1:8000/auth/bootstrap \
 
 Remove `AEGISAI_BOOTSTRAP_TOKEN` after the initial administrator is created, then
 run `make restart`. The login page uses `/auth/login` and stores only the short-lived
-JWT in the browser's local storage. For a public deployment, place the app behind a
+JWT for the current browser session. For a public deployment, place the app behind a
 trusted TLS reverse proxy and plan a later move to HttpOnly session cookies.
 
 ## Database operations

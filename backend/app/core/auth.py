@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
+from uuid import uuid4
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -50,6 +51,8 @@ def create_access_token(user: User) -> str:
         "role": user.role.value,
         "email": user.email,
         "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "jti": str(uuid4()),
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_expiry_minutes),
     }
@@ -122,6 +125,7 @@ def get_current_actor(
             settings.jwt_secret,
             algorithms=["HS256"],
             issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(

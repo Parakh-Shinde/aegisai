@@ -434,6 +434,8 @@ for setup, health checks, and safe cleanup instructions.
 
 For the shared-deployment security model, production variables, RBAC roles, and
 operational limits, read [the v0.2 Production Foundation guide](docs/production-foundation.md).
+Use the [security deployment checklist](docs/security-deployment-checklist.md) before
+exposing the application beyond your local machine.
 
 ---
 

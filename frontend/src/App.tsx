@@ -128,7 +128,7 @@ function formatDate(value: string) {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+  const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
@@ -141,7 +141,7 @@ async function apiGet<T>(path: string): Promise<T> {
 }
 
 async function apiSend<T>(path: string, method: string, body?: unknown): Promise<T> {
-  const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+  const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers: {
@@ -173,7 +173,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         email,
         password,
       });
-      window.localStorage.setItem(ACCESS_TOKEN_KEY, token.access_token);
+      window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token.access_token);
       onLogin();
     } catch {
       setError("Sign-in failed. Check your email and password.");
@@ -240,7 +240,7 @@ function mapResultToStepStatus(result: SecurityResult): LiveStep["status"] {
 
 export default function App() {
   const [accessToken, setAccessToken] = useState(() =>
-    window.localStorage.getItem(ACCESS_TOKEN_KEY),
+    window.sessionStorage.getItem(ACCESS_TOKEN_KEY),
   );
   const [model, setModel] = useState("qwen2.5:3b");
   const [testType, setTestType] = useState<TestType>("prompt-injection");
@@ -521,7 +521,7 @@ export default function App() {
   }, [accessToken]);
 
   if (AUTH_REQUIRED && !accessToken) {
-    return <LoginScreen onLogin={() => setAccessToken(window.localStorage.getItem(ACCESS_TOKEN_KEY))} />;
+    return <LoginScreen onLogin={() => setAccessToken(window.sessionStorage.getItem(ACCESS_TOKEN_KEY))} />;
   }
 
   return (
@@ -575,7 +575,7 @@ export default function App() {
               <button
                 className="secondary-button"
                 onClick={() => {
-                  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+                  window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
                   setAccessToken(null);
                 }}
               >

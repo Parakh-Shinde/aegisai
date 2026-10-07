@@ -2,6 +2,8 @@ import os
 
 import httpx
 
+from app.core.config import get_settings
+from app.core.execution import model_execution_gate
 from app.core.security import validate_local_http_url
 
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
@@ -39,14 +41,20 @@ class OllamaAdapter:
         return response.json()
 
     def generate(self, model: str, prompt: str) -> dict:
-        response = httpx.post(
-            f"{self.base_url}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-            },
-            timeout=120.0,
-        )
-        response.raise_for_status()
-        return response.json()
+        settings = get_settings()
+        model_execution_gate.acquire()
+        try:
+            response = httpx.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": settings.model_max_output_tokens},
+                },
+                timeout=settings.model_timeout_seconds,
+            )
+            response.raise_for_status()
+            return response.json()
+        finally:
+            model_execution_gate.release()

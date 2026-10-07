@@ -15,6 +15,14 @@ class Settings:
     bootstrap_token: str | None
     local_organization_slug: str
     evidence_encryption_key: str | None
+    jwt_audience: str
+    cors_origins: tuple[str, ...]
+    trusted_hosts: tuple[str, ...]
+    max_request_body_bytes: int
+    api_docs_enabled: bool
+    model_max_output_tokens: int
+    model_timeout_seconds: int
+    model_max_concurrency: int
 
     @property
     def is_production(self) -> bool:
@@ -23,19 +31,28 @@ class Settings:
 
 def get_settings() -> Settings:
     environment = os.getenv("AEGISAI_ENVIRONMENT", "development")
+    is_production = environment.lower() == "production"
     auth_required = (
         os.getenv(
             "AEGISAI_AUTH_REQUIRED",
-            "true" if environment.lower() == "production" else "false",
+            "true" if is_production else "false",
         ).lower()
         == "true"
     )
     jwt_secret = os.getenv("AEGISAI_JWT_SECRET", "")
     evidence_encryption_key = os.getenv("AEGISAI_EVIDENCE_ENCRYPTION_KEY") or None
+    cors_origins = _comma_separated_env(
+        "AEGISAI_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    )
+    trusted_hosts = _comma_separated_env(
+        "AEGISAI_TRUSTED_HOSTS",
+        "localhost,127.0.0.1,testserver",
+    )
 
-    if environment.lower() == "production" and not auth_required:
+    if is_production and not auth_required:
         raise RuntimeError("AEGISAI_AUTH_REQUIRED must be true in production.")
-    if environment.lower() == "production":
+    if is_production:
         if (
             not jwt_secret
             or jwt_secret == DEVELOPMENT_JWT_SECRET
@@ -59,12 +76,21 @@ def get_settings() -> Settings:
             raise RuntimeError(
                 "AEGISAI_EVIDENCE_ENCRYPTION_KEY must be a valid Fernet key."
             )
+        if not os.getenv("AEGISAI_CORS_ORIGINS") or "*" in cors_origins:
+            raise RuntimeError(
+                "AEGISAI_CORS_ORIGINS must contain explicit production UI origins."
+            )
+        if not os.getenv("AEGISAI_TRUSTED_HOSTS") or "*" in trusted_hosts:
+            raise RuntimeError(
+                "AEGISAI_TRUSTED_HOSTS must contain explicit production host names."
+            )
 
     return Settings(
         environment=environment,
         auth_required=auth_required,
         jwt_secret=jwt_secret or DEVELOPMENT_JWT_SECRET,
         jwt_issuer=os.getenv("AEGISAI_JWT_ISSUER", "aegisai"),
+        jwt_audience=os.getenv("AEGISAI_JWT_AUDIENCE", "aegisai-api"),
         jwt_expiry_minutes=max(1, int(os.getenv("AEGISAI_JWT_EXPIRY_MINUTES", "30"))),
         bootstrap_token=os.getenv("AEGISAI_BOOTSTRAP_TOKEN") or None,
         local_organization_slug=os.getenv(
@@ -72,4 +98,57 @@ def get_settings() -> Settings:
             "local-lab",
         ),
         evidence_encryption_key=evidence_encryption_key,
+        cors_origins=cors_origins,
+        trusted_hosts=trusted_hosts,
+        max_request_body_bytes=_bounded_int_env(
+            "AEGISAI_MAX_REQUEST_BODY_BYTES",
+            default=65_536,
+            minimum=1_024,
+            maximum=1_048_576,
+        ),
+        api_docs_enabled=(
+            os.getenv(
+                "AEGISAI_EXPOSE_API_DOCS",
+                "true" if not is_production else "false",
+            )
+            .lower()
+            == "true"
+        ),
+        model_max_output_tokens=_bounded_int_env(
+            "AEGISAI_MODEL_MAX_OUTPUT_TOKENS",
+            default=512,
+            minimum=1,
+            maximum=4_096,
+        ),
+        model_timeout_seconds=_bounded_int_env(
+            "AEGISAI_MODEL_TIMEOUT_SECONDS",
+            default=60,
+            minimum=5,
+            maximum=300,
+        ),
+        model_max_concurrency=_bounded_int_env(
+            "AEGISAI_MODEL_MAX_CONCURRENCY",
+            default=2,
+            minimum=1,
+            maximum=16,
+        ),
     )
+
+
+def _comma_separated_env(name: str, default: str) -> tuple[str, ...]:
+    values = tuple(
+        item.strip() for item in os.getenv(name, default).split(",") if item.strip()
+    )
+    if not values:
+        raise RuntimeError(f"{name} must contain at least one value.")
+    return values
+
+
+def _bounded_int_env(name: str, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+    if not minimum <= value <= maximum:
+        raise RuntimeError(f"{name} must be between {minimum} and {maximum}.")
+    return value

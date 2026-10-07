@@ -1,16 +1,16 @@
-import os
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.api.adapters import router as adapters_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.model_registry import router as model_registry_router
 from app.api.security_tests import router as security_tests_router
+from app.core.config import get_settings
 from app.db import models as db_models  # noqa: F401
 
 
@@ -35,23 +35,92 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestBodyLimitMiddleware:
+    def __init__(self, app, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        content_length = next(
+            (
+                value
+                for name, value in scope.get("headers", [])
+                if name.lower() == b"content-length"
+            ),
+            None,
+        )
+        if content_length is not None:
+            try:
+                if int(content_length) > self.max_body_bytes:
+                    await self._send_too_large(scope, receive, send)
+                    return
+            except ValueError:
+                await self._send_too_large(scope, receive, send)
+                return
+
+        received_bytes = 0
+        response_started = False
+
+        async def limited_receive():
+            nonlocal received_bytes
+            message = await receive()
+            if message["type"] == "http.request":
+                received_bytes += len(message.get("body", b""))
+                if received_bytes > self.max_body_bytes:
+                    raise RequestBodyTooLarge
+            return message
+
+        async def tracking_send(message):
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except RequestBodyTooLarge:
+            if not response_started:
+                await self._send_too_large(scope, receive, send)
+
+    async def _send_too_large(self, scope, receive, send) -> None:
+        response = JSONResponse(
+            status_code=413,
+            content={"detail": "Request body exceeds the allowed size."},
+        )
+        await response(scope, receive, send)
+
+
+class RequestBodyTooLarge(Exception):
+    pass
+
+
+settings = get_settings()
+
+
 app = FastAPI(
     title="AEGISAI API",
     description="AI Security Immune System Backend API",
     version="0.1.0",
+    docs_url="/docs" if settings.api_docs_enabled else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if settings.api_docs_enabled else None,
 )
-
-cors_origins = os.getenv(
-    "AEGISAI_CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
-).split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in cors_origins if origin.strip()],
+    allow_origins=list(settings.cors_origins),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.trusted_hosts))
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=settings.max_request_body_bytes,
 )
 app.add_middleware(SecurityHeadersMiddleware)
 

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import bind_request_actor, require_roles
+from app.core.execution import ModelCapacityError
 from app.core.security import require_api_key, safe_upstream_error
 from app.db.models import UserRole
 from app.services.ollama_adapter import OllamaAdapter
@@ -46,5 +47,10 @@ def ollama_generate(request: OllamaGenerateRequest) -> dict:
 
     try:
         return adapter.generate(model=request.model, prompt=request.prompt)
+    except ModelCapacityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Model execution capacity is currently exhausted. Try again later.",
+        ) from exc
     except Exception as exc:
         raise safe_upstream_error("Ollama generation failed.") from exc

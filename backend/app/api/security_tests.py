@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.evidence import protect_evidence, reveal_evidence
+from app.core.execution import ModelCapacityError
 from app.core.security import (
     MAX_MODEL_NAME_LENGTH,
     MAX_PROMPT_LENGTH,
@@ -829,6 +830,11 @@ def run_single_security_test(
 
     try:
         result = adapter.generate(model=model, prompt=prompt_sent)
+    except ModelCapacityError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Model execution capacity is currently exhausted. Try again later.",
+        ) from exc
     except Exception as exc:
         raise safe_upstream_error("Security test failed.") from exc
 
