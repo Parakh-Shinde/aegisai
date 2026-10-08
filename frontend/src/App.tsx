@@ -331,17 +331,32 @@ export default function App() {
     setError("");
     setMessage("Checking lab health...");
 
-    try {
-      const [apiData, ollamaData] = await Promise.all([
-        apiGet<HealthStatus>("/health"),
-        apiGet<HealthStatus>("/adapters/ollama/health"),
-      ]);
+    const [apiResult, ollamaResult] = await Promise.allSettled([
+      apiGet<HealthStatus>("/health"),
+      apiGet<HealthStatus>("/adapters/ollama/health"),
+    ]);
 
-      setApiHealth(apiData);
-      setOllamaHealth(ollamaData);
+    if (apiResult.status === "fulfilled") {
+      setApiHealth(apiResult.value);
+    } else {
+      setApiHealth({ status: "error", detail: "API health check failed." });
+      setError(
+        apiResult.reason instanceof Error
+          ? apiResult.reason.message
+          : "API health check failed",
+      );
+    }
+
+    if (ollamaResult.status === "fulfilled") {
+      setOllamaHealth(ollamaResult.value);
+    } else {
+      setOllamaHealth({ status: "error", detail: "Ollama is unavailable." });
+    }
+
+    if (apiResult.status === "fulfilled" && ollamaResult.status === "fulfilled") {
       setMessage("Health check completed.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Health check failed");
+    } else if (apiResult.status === "fulfilled") {
+      setMessage("API is healthy. Configure Ollama to run model tests.");
     }
   }
 
