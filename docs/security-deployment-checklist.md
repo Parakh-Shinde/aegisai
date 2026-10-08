@@ -13,8 +13,10 @@ decision: it needs the platform controls below as well as this application code.
 | SSRF / internal scanning | Register a model URL such as a cloud metadata or private `172.*` host | Local endpoints are explicit; remote endpoints need an exact allowlist and public-IP resolution. |
 | Evidence disclosure | Read database backups or tables containing prompts and model output | Production requires a Fernet encryption key for newly stored evidence. |
 | Login guessing | Repeatedly submit password guesses | The API limits failed attempts per client/IP and email in each API process. |
+| Distributed login guessing | Spread guesses across multiple API replicas | Redis-backed limits are used whenever `AEGISAI_REDIS_URL` is configured. |
 | Request flooding | Send huge/chunked bodies to consume memory | API and nginx body limits reject requests above 64 KiB by default. |
 | Model-resource exhaustion | Run many long requests or ask for unlimited output | Model calls have a timeout, output-token cap, and bounded per-process concurrency. |
+| Long-running campaign requests | Hold API workers while a full suite runs | Staging/production runs campaigns through Redis + an RQ worker and the dashboard polls job status. Evidence stays in PostgreSQL rather than Redis job results. |
 | Host-header abuse | Send an untrusted `Host` header to influence generated links or proxy behavior | Trusted Host validation is enabled and production requires an explicit host list. |
 | Browser token persistence | Recover a token from durable browser storage after a shared-device session | The dashboard uses session storage, so the token is cleared when the browser session ends. |
 | Unreviewed audit changes | Modify an audit row and hide it in normal views | The audit chain is verified through `GET /audit-logs/verify`; PostgreSQL chain writes are serialized per organization. |
@@ -35,6 +37,8 @@ AEGISAI_EXPOSE_API_DOCS=false
 AEGISAI_MODEL_MAX_CONCURRENCY=2
 AEGISAI_MODEL_TIMEOUT_SECONDS=60
 AEGISAI_MODEL_MAX_OUTPUT_TOKENS=512
+AEGISAI_REDIS_URL=redis://redis:6379/0
+AEGISAI_ASYNC_CAMPAIGNS=true
 ```
 
 Use an exact `AEGISAI_LOCAL_MODEL_ENDPOINTS` value for a controlled local/WSL
@@ -58,7 +62,8 @@ These cannot be honestly solved only by source code or Docker Compose:
 6. Add MFA/SSO for administrators, central log retention, monitoring, alerting, and
    an incident-response owner.
 7. Encrypt or securely delete **existing** plaintext evidence before loading real
-   customer prompts. The current encryption applies to new records after the key is set.
+   customer prompts. After setting the encryption key, run `make encrypt-evidence` once;
+   the current encryption also applies to all new records.
 8. Run dependency/container scans in CI, an authenticated API authorization test, and
    an independent penetration test before a customer-facing launch.
 
@@ -66,6 +71,10 @@ These cannot be honestly solved only by source code or Docker Compose:
 
 **Local/portfolio lab:** approved after `make restart`, `make lint`, `make test`, and
 the health/dashboard checks pass.
+
+**Controlled staging:** follow `docs/staging-runbook.md`; keep the Compose ports
+loopback-only and use an authenticated TLS reverse proxy only after its hostname,
+origin allowlist, and certificate are verified.
 
 **Internet-facing production:** not approved until every platform control above is
 implemented, tested in staging, and reviewed by the person accountable for the

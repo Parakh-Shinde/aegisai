@@ -32,6 +32,30 @@ def test_production_requires_explicit_cors_and_trusted_hosts(
         get_settings()
 
 
+def test_production_requires_redis_and_async_campaigns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_ENVIRONMENT", "production")
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
+    monkeypatch.setenv(
+        "AEGISAI_EVIDENCE_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    monkeypatch.setenv("AEGISAI_CORS_ORIGINS", "https://aegisai.example.com")
+    monkeypatch.setenv("AEGISAI_TRUSTED_HOSTS", "aegisai.example.com")
+    monkeypatch.delenv("AEGISAI_REDIS_URL", raising=False)
+    monkeypatch.setenv("AEGISAI_ASYNC_CAMPAIGNS", "true")
+
+    with pytest.raises(RuntimeError, match="REDIS_URL"):
+        get_settings()
+
+    monkeypatch.setenv("AEGISAI_REDIS_URL", "redis://redis:6379/0")
+    monkeypatch.setenv("AEGISAI_ASYNC_CAMPAIGNS", "false")
+    with pytest.raises(RuntimeError, match="ASYNC_CAMPAIGNS"):
+        get_settings()
+
+
 def test_jwt_has_audience_and_rejects_another_audience(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

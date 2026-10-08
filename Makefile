@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup start stop restart logs status doctor migrate backup test lint build clean
+.PHONY: help setup start stop restart logs status doctor migrate backup encrypt-evidence test lint build clean
 
 help:
 	@echo "AEGISAI local security lab"
@@ -12,6 +12,7 @@ help:
 	@echo "  make doctor   Validate the Docker configuration"
 	@echo "  make migrate  Apply PostgreSQL schema migrations"
 	@echo "  make backup   Save a timestamped PostgreSQL backup under backups/"
+	@echo "  make encrypt-evidence  Encrypt legacy evidence after configuring its key"
 	@echo "  make test     Run backend tests in Docker"
 	@echo "  make lint     Run backend lint and frontend lint in Docker"
 	@echo "  make clean    Stop the lab and remove local evaluation data"
@@ -47,6 +48,9 @@ backup:
 	@mkdir -p backups
 	docker compose exec -T postgres pg_dump -U "$${POSTGRES_USER:-aegisai}" "$${POSTGRES_DB:-aegisai}" > backups/aegisai-$$(date +%Y%m%d-%H%M%S).sql
 	@echo "Database backup saved under backups/."
+
+encrypt-evidence:
+	docker compose exec api python scripts/encrypt_existing_evidence.py
 
 test:
 	docker compose run --rm --no-deps api pytest /app/tests

@@ -5,12 +5,13 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 import pytest  # noqa: E402
 from app.core.config import DEVELOPMENT_JWT_SECRET, get_settings  # noqa: E402
 from app.core.evidence import protect_evidence, reveal_evidence  # noqa: E402
-from app.core.rate_limit import LoginRateLimiter  # noqa: E402
+from app.core.rate_limit import LoginRateLimiter, RedisLoginRateLimiter  # noqa: E402
 from app.core.security import (  # noqa: E402
     require_api_key,
     validate_identifier,
     validate_local_http_url,
 )
+from app.services import campaign_queue  # noqa: E402
 from cryptography.fernet import Fernet  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
@@ -118,3 +119,69 @@ def test_login_rate_limiter_blocks_after_repeated_failures() -> None:
         limiter.check("127.0.0.1:user@example.com")
 
     assert exc_info.value.status_code == 429
+
+
+class FakeRedis:
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+        self.ttls: dict[str, int] = {}
+
+    def ttl(self, key: str) -> int:
+        return self.ttls.get(key, -2)
+
+    def incr(self, key: str) -> int:
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    def expire(self, key: str, seconds: int) -> None:
+        self.ttls[key] = seconds
+
+    def setex(self, key: str, seconds: int, value: str) -> None:
+        del value
+        self.ttls[key] = seconds
+
+    def delete(self, key: str) -> None:
+        self.values.pop(key, None)
+        self.ttls.pop(key, None)
+
+
+def test_redis_login_rate_limiter_hashes_identity_and_blocks() -> None:
+    limiter = RedisLoginRateLimiter("redis://unused", max_failures=2)
+    limiter.client = FakeRedis()
+    key = "198.51.100.25:analyst@example.com"
+
+    limiter.record_failure(key)
+    limiter.record_failure(key)
+
+    assert "analyst@example.com" not in limiter._failure_key(key)
+    with pytest.raises(HTTPException) as exc_info:
+        limiter.check(key)
+    assert exc_info.value.status_code == 429
+
+
+def test_campaign_job_status_never_returns_redis_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeJob:
+        id = "job-1"
+        meta = {
+            "organization_id": "organization-1",
+            "campaign_id": "campaign-1",
+            "model": "local-model",
+        }
+        result = {"prompt_sent": "sensitive evidence"}
+
+        @staticmethod
+        def get_status() -> str:
+            return "finished"
+
+    monkeypatch.setattr(campaign_queue, "_connection", lambda: object())
+    monkeypatch.setattr(campaign_queue.Job, "fetch", lambda *args, **kwargs: FakeJob())
+
+    status = campaign_queue.get_campaign_job("job-1", "organization-1")
+
+    assert status.campaign_id == "campaign-1"
+    assert status.model == "local-model"
+    assert not hasattr(status, "result")
+    with pytest.raises(PermissionError):
+        campaign_queue.get_campaign_job("job-1", "organization-2")

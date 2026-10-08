@@ -17,13 +17,12 @@ from app.core.auth import (
 )
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.rate_limit import LoginRateLimiter
+from app.core.rate_limit import get_login_rate_limiter
 from app.db.models import Organization, User, UserRole
 from app.services.audit import write_audit_log
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-login_rate_limiter = LoginRateLimiter()
 DBSession = Annotated[Session, Depends(get_db)]
 BootstrapToken = Annotated[str | None, Header()]
 CurrentActor = Annotated[Actor, Depends(get_current_actor)]
@@ -138,7 +137,8 @@ def login(
     email = validate_email(login_request.email)
     client_host = request.client.host if request.client else "unknown"
     rate_limit_key = f"{client_host}:{email}"
-    login_rate_limiter.check(rate_limit_key)
+    rate_limiter = get_login_rate_limiter()
+    rate_limiter.check(rate_limit_key)
     user = db.scalar(select(User).where(User.email == email))
     if (
         user is None
@@ -148,13 +148,13 @@ def login(
             user.password_hash,
         )
     ):
-        login_rate_limiter.record_failure(rate_limit_key)
+        rate_limiter.record_failure(rate_limit_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
         )
 
-    login_rate_limiter.reset(rate_limit_key)
+    rate_limiter.reset(rate_limit_key)
     user.last_login_at = datetime.now(UTC)
     write_audit_log(
         db,

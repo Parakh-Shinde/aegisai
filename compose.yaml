@@ -16,6 +16,18 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - aegisai-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   api:
     build:
       context: ./backend
@@ -37,6 +49,8 @@ services:
       AEGISAI_MODEL_MAX_OUTPUT_TOKENS: ${AEGISAI_MODEL_MAX_OUTPUT_TOKENS:-512}
       AEGISAI_MODEL_TIMEOUT_SECONDS: ${AEGISAI_MODEL_TIMEOUT_SECONDS:-60}
       AEGISAI_MODEL_MAX_CONCURRENCY: ${AEGISAI_MODEL_MAX_CONCURRENCY:-2}
+      AEGISAI_REDIS_URL: ${AEGISAI_REDIS_URL:-redis://redis:6379/0}
+      AEGISAI_ASYNC_CAMPAIGNS: ${AEGISAI_ASYNC_CAMPAIGNS:-false}
       AEGISAI_BOOTSTRAP_TOKEN: ${AEGISAI_BOOTSTRAP_TOKEN:-}
     extra_hosts:
       - host.docker.internal:host-gateway
@@ -44,6 +58,8 @@ services:
       - 127.0.0.1:8000:8000
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     healthcheck:
@@ -62,12 +78,47 @@ services:
     cap_drop:
       - ALL
 
+  worker:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-aegisai}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-aegisai}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      AEGISAI_LOCAL_MODEL_ENDPOINTS: ${AEGISAI_LOCAL_MODEL_ENDPOINTS:-}
+      AEGISAI_ALLOW_REMOTE_OLLAMA: ${AEGISAI_ALLOW_REMOTE_OLLAMA:-false}
+      AEGISAI_APPROVED_MODEL_ENDPOINTS: ${AEGISAI_APPROVED_MODEL_ENDPOINTS:-}
+      AEGISAI_ENVIRONMENT: ${AEGISAI_ENVIRONMENT:-development}
+      AEGISAI_AUTH_REQUIRED: ${AEGISAI_AUTH_REQUIRED:-false}
+      AEGISAI_CORS_ORIGINS: ${AEGISAI_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      AEGISAI_TRUSTED_HOSTS: ${AEGISAI_TRUSTED_HOSTS:-localhost,127.0.0.1}
+      AEGISAI_JWT_SECRET: ${AEGISAI_JWT_SECRET:?Set AEGISAI_JWT_SECRET in .env}
+      AEGISAI_EVIDENCE_ENCRYPTION_KEY: ${AEGISAI_EVIDENCE_ENCRYPTION_KEY:-}
+      AEGISAI_REDIS_URL: ${AEGISAI_REDIS_URL:-redis://redis:6379/0}
+      AEGISAI_ASYNC_CAMPAIGNS: ${AEGISAI_ASYNC_CAMPAIGNS:-false}
+      AEGISAI_MODEL_MAX_OUTPUT_TOKENS: ${AEGISAI_MODEL_MAX_OUTPUT_TOKENS:-512}
+      AEGISAI_MODEL_TIMEOUT_SECONDS: ${AEGISAI_MODEL_TIMEOUT_SECONDS:-60}
+      AEGISAI_MODEL_MAX_CONCURRENCY: ${AEGISAI_MODEL_MAX_CONCURRENCY:-2}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["sh", "-c", "rq worker --url \"$$AEGISAI_REDIS_URL\" aegisai-campaigns"]
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
   web:
     build:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://127.0.0.1:8000}
         VITE_AUTH_REQUIRED: ${VITE_AUTH_REQUIRED:-false}
+        VITE_ASYNC_CAMPAIGNS: ${VITE_ASYNC_CAMPAIGNS:-false}
     depends_on:
       api:
         condition: service_healthy
@@ -89,3 +140,4 @@ services:
 
 volumes:
   aegisai-postgres:
+  aegisai-redis:

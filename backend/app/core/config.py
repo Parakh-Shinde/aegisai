@@ -23,6 +23,8 @@ class Settings:
     model_max_output_tokens: int
     model_timeout_seconds: int
     model_max_concurrency: int
+    redis_url: str | None
+    async_campaigns: bool
 
     @property
     def is_production(self) -> bool:
@@ -49,6 +51,8 @@ def get_settings() -> Settings:
         "AEGISAI_TRUSTED_HOSTS",
         "localhost,127.0.0.1,testserver",
     )
+    redis_url = os.getenv("AEGISAI_REDIS_URL") or None
+    async_campaigns = os.getenv("AEGISAI_ASYNC_CAMPAIGNS", "false").lower() == "true"
 
     if is_production and not auth_required:
         raise RuntimeError("AEGISAI_AUTH_REQUIRED must be true in production.")
@@ -84,6 +88,10 @@ def get_settings() -> Settings:
             raise RuntimeError(
                 "AEGISAI_TRUSTED_HOSTS must contain explicit production host names."
             )
+        if not redis_url:
+            raise RuntimeError("AEGISAI_REDIS_URL is required in production.")
+        if not async_campaigns:
+            raise RuntimeError("AEGISAI_ASYNC_CAMPAIGNS must be true in production.")
 
     return Settings(
         environment=environment,
@@ -132,6 +140,8 @@ def get_settings() -> Settings:
             minimum=1,
             maximum=16,
         ),
+        redis_url=redis_url,
+        async_campaigns=async_campaigns,
     )
 
 
