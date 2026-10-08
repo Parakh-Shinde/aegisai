@@ -24,6 +24,8 @@ backend/app/api/_init_.py
 backend/app/core/_init_.py
 *.bak
 backups/
+# Imported delivery bundles are local hand-off artifacts, not source code.
+delivery/
 # Local configuration and generated data
 .env
 *.db

@@ -2,6 +2,12 @@
 
 AEGISAI is a practical AI security lab for evaluating AI models before they are trusted in real workflows.
 
+> **Deployment scope:** AEGISAI is ready for local use and controlled staging.
+> It includes an enterprise deployment blueprint, but it is not an approved
+> Internet-facing SaaS until the platform release gates are complete. See
+> [Enterprise-Ready Blueprint](docs/enterprise-blueprint.md) and the
+> [Security Deployment Checklist](docs/security-deployment-checklist.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**

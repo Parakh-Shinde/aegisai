@@ -11,9 +11,10 @@ DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 
 class OllamaAdapter:
     def __init__(self, base_url: str | None = None) -> None:
-        configured_url = base_url or os.getenv(
-            "OLLAMA_BASE_URL",
-            DEFAULT_OLLAMA_BASE_URL,
+        configured_url = (
+            base_url
+            if base_url is not None
+            else os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
         )
         self.base_url = validate_local_http_url(configured_url, "OLLAMA_BASE_URL")
 

@@ -8,7 +8,11 @@ from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.db.models import RegisteredModelRecord, UserRole
-from app.models.model_registry import ModelRegistrationRequest, RegisteredModel
+from app.models.model_registry import (
+    ModelCapabilityProfile,
+    ModelRegistrationRequest,
+    RegisteredModel,
+)
 from app.services.audit import write_audit_log
 from app.services.ollama_adapter import OllamaAdapter
 
@@ -24,15 +28,20 @@ def build_model_id(provider: str, name: str, version: str) -> str:
     return f"{provider}:{name}:{version}".lower()
 
 
-def infer_ollama_capabilities(raw_model: dict) -> dict[str, bool]:
-    capabilities = raw_model.get("capabilities", [])
-    return {
-        "text_generation": "completion" in capabilities,
-        "tool_use": "tools" in capabilities,
-        "reasoning": True,
-        "code_generation": True,
-        "multilingual": True,
-    }
+def infer_ollama_capabilities(raw_model: dict[str, object]) -> ModelCapabilityProfile:
+    raw_capabilities = raw_model.get("capabilities", [])
+    capabilities = (
+        {value for value in raw_capabilities if isinstance(value, str)}
+        if isinstance(raw_capabilities, list)
+        else set()
+    )
+    return ModelCapabilityProfile(
+        text_generation="completion" in capabilities,
+        tool_use="tools" in capabilities,
+        reasoning=True,
+        code_generation=True,
+        multilingual=True,
+    )
 
 
 def to_response(record: RegisteredModelRecord) -> RegisteredModel:
@@ -43,7 +52,7 @@ def to_response(record: RegisteredModelRecord) -> RegisteredModel:
         version=record.version,
         endpoint=record.endpoint,
         deployment_type=record.deployment_type,
-        capabilities=record.capabilities,
+        capabilities=ModelCapabilityProfile(**record.capabilities),
         authentication=record.authentication,
     )
 
@@ -107,8 +116,16 @@ def discover_ollama_models(db: DBSession) -> list[RegisteredModel]:
     discovered = adapter.list_models()
     created_models: list[RegisteredModel] = []
 
-    for raw_model in discovered.get("models", []):
+    raw_models = discovered.get("models", [])
+    if not isinstance(raw_models, list):
+        return created_models
+
+    for raw_model in raw_models:
+        if not isinstance(raw_model, dict):
+            continue
         model_name = raw_model.get("name", "unknown")
+        if not isinstance(model_name, str):
+            continue
         name, _, version = model_name.partition(":")
         model_id = build_model_id("ollama", name, version or "latest")
         existing = db.scalar(

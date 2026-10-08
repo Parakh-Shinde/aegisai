@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import bind_request_actor, request_actor, require_roles
@@ -51,7 +51,7 @@ VALID_REVIEW_STATUSES = {
 }
 
 
-def tenant_records_query(db: Session):
+def tenant_records_query(db: Session) -> Select[SecurityTestResultRecord]:
     return select(SecurityTestResultRecord).where(
         SecurityTestResultRecord.organization_id == request_actor(db).organization_id
     )
@@ -240,7 +240,7 @@ def load_corpus_suite(suite_name: str) -> list[dict[str, str]]:
         )
 
     try:
-        data = json.loads(suite_path.read_text(encoding="utf-8"))
+        data: object = json.loads(suite_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=500,
@@ -248,7 +248,7 @@ def load_corpus_suite(suite_name: str) -> list[dict[str, str]]:
         ) from exc
 
     if isinstance(data, list):
-        tests = data
+        tests: object = data
     elif isinstance(data, dict):
         tests = data.get("tests")
     else:
@@ -1371,18 +1371,22 @@ def get_security_dashboard(db: DBSession) -> SecurityDashboard:
 
 @router.get("/scorecard", response_model=ScorecardResponse)
 def get_model_scorecard(model: str, db: DBSession) -> ScorecardResponse:
-    records = db.scalars(
-        tenant_records_query(db).where(SecurityTestResultRecord.model == model)
-    ).all()
+    records = list(
+        db.scalars(
+            tenant_records_query(db).where(SecurityTestResultRecord.model == model)
+        ).all()
+    )
 
     return build_scorecard(records, model=model)
 
 
 @router.get("/release-gate", response_model=ReleaseGateResponse)
 def get_release_gate(model: str, db: DBSession) -> ReleaseGateResponse:
-    records = db.scalars(
-        tenant_records_query(db).where(SecurityTestResultRecord.model == model)
-    ).all()
+    records = list(
+        db.scalars(
+            tenant_records_query(db).where(SecurityTestResultRecord.model == model)
+        ).all()
+    )
 
     return build_release_gate_response(model=model, records=records)
 
@@ -1413,11 +1417,13 @@ def get_campaign_review_summary(
 ) -> ReviewSummaryResponse:
     validate_identifier(campaign_id, "campaign_id")
 
-    records = db.scalars(
-        tenant_records_query(db).where(
-            SecurityTestResultRecord.campaign_id == campaign_id
-        )
-    ).all()
+    records = list(
+        db.scalars(
+            tenant_records_query(db).where(
+                SecurityTestResultRecord.campaign_id == campaign_id
+            )
+        ).all()
+    )
 
     return build_review_summary(records)
 
@@ -1432,11 +1438,13 @@ def get_campaign_release_gate(
 ) -> ReleaseGateResponse:
     validate_identifier(campaign_id, "campaign_id")
 
-    records = db.scalars(
-        tenant_records_query(db).where(
-            SecurityTestResultRecord.campaign_id == campaign_id
-        )
-    ).all()
+    records = list(
+        db.scalars(
+            tenant_records_query(db).where(
+                SecurityTestResultRecord.campaign_id == campaign_id
+            )
+        ).all()
+    )
 
     if not records:
         raise HTTPException(

@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.adapters import router as adapters_router
 from app.api.audit import router as audit_router
@@ -15,7 +16,11 @@ from app.db import models as db_models  # noqa: F401
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -36,11 +41,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class RequestBodyLimitMiddleware:
-    def __init__(self, app, max_body_bytes: int) -> None:
+    def __init__(self, app: ASGIApp, max_body_bytes: int) -> None:
         self.app = app
         self.max_body_bytes = max_body_bytes
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -65,7 +70,7 @@ class RequestBodyLimitMiddleware:
         received_bytes = 0
         response_started = False
 
-        async def limited_receive():
+        async def limited_receive() -> Message:
             nonlocal received_bytes
             message = await receive()
             if message["type"] == "http.request":
@@ -74,7 +79,7 @@ class RequestBodyLimitMiddleware:
                     raise RequestBodyTooLarge
             return message
 
-        async def tracking_send(message):
+        async def tracking_send(message: Message) -> None:
             nonlocal response_started
             if message["type"] == "http.response.start":
                 response_started = True
@@ -86,7 +91,12 @@ class RequestBodyLimitMiddleware:
             if not response_started:
                 await self._send_too_large(scope, receive, send)
 
-    async def _send_too_large(self, scope, receive, send) -> None:
+    async def _send_too_large(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
         response = JSONResponse(
             status_code=413,
             content={"detail": "Request body exceeds the allowed size."},

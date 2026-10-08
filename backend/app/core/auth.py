@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -174,7 +175,7 @@ def request_actor(db: Session) -> Actor:
     return actor
 
 
-def require_roles(*allowed_roles: UserRole):
+def require_roles(*allowed_roles: UserRole) -> Callable[[Actor], None]:
     def dependency(actor: Annotated[Actor, Depends(get_current_actor)]) -> None:
         if actor.role not in allowed_roles:
             raise HTTPException(
