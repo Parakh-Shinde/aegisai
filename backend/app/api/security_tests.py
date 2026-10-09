@@ -7,6 +7,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
@@ -24,7 +25,12 @@ from app.core.security import (
     safe_upstream_error,
     validate_identifier,
 )
-from app.db.models import EvaluationBaseline, SecurityTestResultRecord, UserRole
+from app.db.models import (
+    AuditLog,
+    EvaluationBaseline,
+    SecurityTestResultRecord,
+    UserRole,
+)
 from app.services.audit import write_audit_log
 from app.services.campaign_queue import (
     CampaignJobNotFoundError,
@@ -33,6 +39,7 @@ from app.services.campaign_queue import (
     get_campaign_job,
 )
 from app.services.ollama_adapter import OllamaAdapter
+from app.services.reporting import export_findings_csv
 
 router = APIRouter(
     prefix="/security-tests",
@@ -152,6 +159,27 @@ class FindingQueueResponse(BaseModel):
     unassigned_findings: int
     overdue_findings: int
     high_severity_open: int
+
+
+class OrganizationReportResponse(BaseModel):
+    generated_at: str
+    window_days: int
+    total_tests: int
+    campaigns: int
+    models_tested: int
+    review_completion_percent: float
+    active_findings: int
+    overdue_findings: int
+    release_pass: int
+    release_manual_review: int
+    release_fail: int
+
+
+class ReviewerActivityResponse(BaseModel):
+    reviewer_id: str
+    review_updates: int
+    triage_updates: int
+    total_actions: int
 
 
 class BasicSuiteResponse(BaseModel):
@@ -826,6 +854,63 @@ def build_review_summary(
         false_positive=false_positive,
         needs_retest=needs_retest,
         review_completion_percent=review_completion_percent,
+    )
+
+
+def build_organization_report(
+    records: list[SecurityTestResultRecord],
+    *,
+    window_days: int,
+    now: datetime | None = None,
+) -> OrganizationReportResponse:
+    """Build a tenant-scoped executive summary from immutable test records."""
+    generated_at = now or datetime.now(UTC)
+    cutoff = generated_at - timedelta(days=window_days)
+    window_records = [record for record in records if record.created_at >= cutoff]
+    campaign_ids = {
+        record.campaign_id for record in window_records if record.campaign_id
+    }
+    campaign_records_by_id = {
+        campaign_id: [
+            record for record in records if record.campaign_id == campaign_id
+        ]
+        for campaign_id in campaign_ids
+    }
+    release_decisions = [
+        build_release_gate_response(
+            model=campaign_model(campaign_records),
+            records=campaign_records,
+        ).decision
+        for campaign_records in campaign_records_by_id.values()
+        if campaign_records
+    ]
+    active_findings = [
+        record
+        for record in records
+        if record.severity in {"medium", "high"}
+        and record.triage_status in {"open", "in_progress"}
+    ]
+
+    return OrganizationReportResponse(
+        generated_at=generated_at.isoformat(),
+        window_days=window_days,
+        total_tests=len(window_records),
+        campaigns=len(campaign_ids),
+        models_tested=len({record.model for record in window_records}),
+        review_completion_percent=build_review_summary(
+            window_records
+        ).review_completion_percent,
+        active_findings=len(active_findings),
+        overdue_findings=sum(
+            1
+            for record in active_findings
+            if record.sla_due_at is not None and record.sla_due_at < generated_at
+        ),
+        release_pass=sum(decision == "pass" for decision in release_decisions),
+        release_manual_review=sum(
+            decision == "manual_review_required" for decision in release_decisions
+        ),
+        release_fail=sum(decision == "fail" for decision in release_decisions),
     )
 
 
@@ -1939,6 +2024,91 @@ def get_security_dashboard(db: DBSession) -> SecurityDashboard:
         blocked_rate_percent=blocked_rate,
         high_risk_tests=high_risk_tests,
         avg_latency_ms=avg_latency_ms,
+    )
+
+
+@router.get("/reports/overview", response_model=OrganizationReportResponse)
+def get_organization_report(
+    db: DBSession,
+    days: int = Query(default=30, ge=1, le=365),
+) -> OrganizationReportResponse:
+    records = list(db.scalars(tenant_records_query(db)).all())
+    return build_organization_report(records, window_days=days)
+
+
+@router.get("/reports/reviewer-activity", response_model=list[ReviewerActivityResponse])
+def get_reviewer_activity(
+    db: DBSession,
+    days: int = Query(default=30, ge=1, le=365),
+) -> list[ReviewerActivityResponse]:
+    actor = request_actor(db)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    records = db.scalars(
+        select(AuditLog).where(
+            AuditLog.organization_id == actor.organization_id,
+            AuditLog.created_at >= cutoff,
+            AuditLog.action.in_(("security_test.review", "security_test.triage")),
+        )
+    ).all()
+    activity: dict[str, dict[str, int]] = {}
+    for record in records:
+        if record.actor_id is None:
+            continue
+        counts = activity.setdefault(
+            record.actor_id,
+            {"review_updates": 0, "triage_updates": 0},
+        )
+        if record.action == "security_test.review":
+            counts["review_updates"] += 1
+        else:
+            counts["triage_updates"] += 1
+
+    return [
+        ReviewerActivityResponse(
+            reviewer_id=reviewer_id,
+            review_updates=counts["review_updates"],
+            triage_updates=counts["triage_updates"],
+            total_actions=counts["review_updates"] + counts["triage_updates"],
+        )
+        for reviewer_id, counts in sorted(activity.items())
+    ]
+
+
+@router.get("/reports/findings.csv")
+def export_findings_report(
+    db: DBSession,
+    triage_status: str = Query(default="all"),
+) -> Response:
+    if triage_status != "all" and triage_status not in VALID_TRIAGE_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid triage status.")
+
+    statement = tenant_records_query(db).where(
+        SecurityTestResultRecord.severity.in_(("medium", "high"))
+    )
+    if triage_status != "all":
+        statement = statement.where(
+            SecurityTestResultRecord.triage_status == triage_status
+        )
+    records = db.scalars(
+        statement.order_by(SecurityTestResultRecord.created_at.desc()).limit(10_000)
+    ).all()
+    actor = request_actor(db)
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="security_report.export",
+        resource_type="finding_report",
+        details={"triage_status": triage_status, "record_count": len(records)},
+    )
+    db.commit()
+    return Response(
+        content=export_findings_csv(records),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="aegisai-findings.csv"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

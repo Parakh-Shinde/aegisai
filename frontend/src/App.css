@@ -495,6 +495,13 @@ button:disabled {
   margin-bottom: 6px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .form-grid,
 .filters-grid,
 .campaign-tools {
@@ -514,6 +521,48 @@ button:disabled {
 
 .campaign-tools {
   grid-template-columns: 1fr;
+}
+
+.release-summary,
+.activity-list {
+  display: grid;
+  gap: 10px;
+  padding: 0 20px 18px;
+}
+
+.release-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.release-summary .badge {
+  justify-content: center;
+  text-align: center;
+}
+
+.activity-list {
+  padding-top: 4px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.activity-list .eyebrow {
+  margin: 0;
+}
+
+.activity-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+}
+
+.activity-row strong {
+  color: #f8fafc;
+  font-size: 0.78rem;
+  text-align: right;
 }
 
 label {
@@ -1028,5 +1077,45 @@ td:nth-child(6) {
   th,
   td {
     padding: 11px 10px;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+    color: #111827;
+  }
+
+  .sidebar,
+  .topbar-actions,
+  .left-stack,
+  #review,
+  #integrity,
+  #models,
+  #history,
+  .panel-actions {
+    display: none !important;
+  }
+
+  .lab-layout,
+  .dashboard-grid,
+  .right-stack,
+  .main-area {
+    display: block;
+    width: 100%;
+    padding: 0;
+  }
+
+  .topbar,
+  .hero-grid,
+  .stats-grid {
+    display: none;
+  }
+
+  #reporting {
+    border-color: #94a3b8;
+    box-shadow: none;
+    color: #111827;
+    background: #ffffff;
   }
 }

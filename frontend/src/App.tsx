@@ -22,6 +22,27 @@ type FindingQueue = {
   high_severity_open: number;
 };
 
+type OrganizationReport = {
+  generated_at: string;
+  window_days: number;
+  total_tests: number;
+  campaigns: number;
+  models_tested: number;
+  review_completion_percent: number;
+  active_findings: number;
+  overdue_findings: number;
+  release_pass: number;
+  release_manual_review: number;
+  release_fail: number;
+};
+
+type ReviewerActivity = {
+  reviewer_id: string;
+  review_updates: number;
+  triage_updates: number;
+  total_actions: number;
+};
+
 type SecurityResult = {
   test_id: string;
   created_at: string;
@@ -341,6 +362,8 @@ export default function App() {
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [findingQueue, setFindingQueue] = useState<FindingQueue | null>(null);
+  const [organizationReport, setOrganizationReport] = useState<OrganizationReport | null>(null);
+  const [reviewerActivity, setReviewerActivity] = useState<ReviewerActivity[]>([]);
   const [results, setResults] = useState<SecurityResult[]>([]);
   const [suite, setSuite] = useState<SuiteResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SecurityResult | null>(null);
@@ -392,17 +415,21 @@ export default function App() {
     setError("");
 
     try {
-      const [dashboardData, resultsData, comparisonData, findingQueueData] = await Promise.all([
+      const [dashboardData, resultsData, comparisonData, findingQueueData, reportData, activityData] = await Promise.all([
         apiGet<Dashboard>("/security-tests/dashboard"),
         apiGet<SecurityResult[]>("/security-tests/results?limit=50"),
         apiGet<ModelComparison[]>("/security-tests/models/compare"),
         apiGet<FindingQueue>("/security-tests/findings/queue"),
+        apiGet<OrganizationReport>("/security-tests/reports/overview?days=30"),
+        apiGet<ReviewerActivity[]>("/security-tests/reports/reviewer-activity?days=30"),
       ]);
 
       setDashboard(dashboardData);
       setResults(resultsData);
       setModelComparison(comparisonData);
       setFindingQueue(findingQueueData);
+      setOrganizationReport(reportData);
+      setReviewerActivity(activityData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh dashboard");
     }
@@ -746,6 +773,29 @@ export default function App() {
     }
   }
 
+  async function exportFindingsReport() {
+    setError("");
+    try {
+      const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
+      const response = await fetch(`${API_BASE_URL}/security-tests/reports/findings.csv`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "aegisai-findings.csv";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage("Findings report exported without raw prompt or model-response evidence.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export findings report");
+    }
+  }
+
   useEffect(() => {
     if (AUTH_REQUIRED && !accessToken) {
       return undefined;
@@ -779,6 +829,7 @@ export default function App() {
           <a href="#live">Live Testing</a>
           <a href="#review">Review</a>
           <a href="#findings">Findings</a>
+          <a href="#reporting">Reports</a>
           <a href="#integrity">Integrity</a>
           <a href="#models">Models</a>
           <a href="#history">History</a>
@@ -1110,6 +1161,68 @@ export default function App() {
                 <p className="empty-state">
                   Load an integrity report for a versioned campaign to inspect its corpus and evidence fingerprint.
                 </p>
+              )}
+            </section>
+
+            <section className="panel" id="reporting">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Reporting</p>
+                  <h2>30-Day Security Posture</h2>
+                </div>
+                <div className="panel-actions">
+                  <button className="secondary-button" onClick={() => window.print()}>
+                    Print / PDF
+                  </button>
+                  <button className="export-button" onClick={() => void exportFindingsReport()}>
+                    Export Findings CSV
+                  </button>
+                </div>
+              </div>
+
+              <div className="review-mini">
+                <article>
+                  <span>Campaigns</span>
+                  <strong>{organizationReport?.campaigns ?? 0}</strong>
+                </article>
+                <article>
+                  <span>Review completion</span>
+                  <strong>{organizationReport?.review_completion_percent ?? 0}%</strong>
+                </article>
+                <article>
+                  <span>Active findings</span>
+                  <strong className="warn-text">{organizationReport?.active_findings ?? 0}</strong>
+                </article>
+                <article>
+                  <span>Overdue SLA</span>
+                  <strong className="bad-text">{organizationReport?.overdue_findings ?? 0}</strong>
+                </article>
+              </div>
+
+              <div className="release-summary">
+                <span className="badge decision-pass">
+                  {organizationReport?.release_pass ?? 0} release pass
+                </span>
+                <span className="badge decision-manual-review-required">
+                  {organizationReport?.release_manual_review ?? 0} need review
+                </span>
+                <span className="badge decision-fail">
+                  {organizationReport?.release_fail ?? 0} release blocked
+                </span>
+              </div>
+
+              {reviewerActivity.length > 0 ? (
+                <div className="activity-list">
+                  <p className="eyebrow">Reviewer activity</p>
+                  {reviewerActivity.map((item) => (
+                    <div className="activity-row" key={item.reviewer_id}>
+                      <span>Reviewer {item.reviewer_id.slice(0, 8)}</span>
+                      <strong>{item.review_updates} reviews · {item.triage_updates} triage updates</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-state">No review or triage activity in this reporting window.</p>
               )}
             </section>
           </aside>
