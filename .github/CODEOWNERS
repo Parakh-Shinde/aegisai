@@ -1,0 +1,4 @@
+# Make corpus and policy changes visible to the repository owner during review.
+/backend/app/corpus/ @Parakh-Shinde
+/backend/release/ @Parakh-Shinde
+/.github/workflows/ci.yml @Parakh-Shinde

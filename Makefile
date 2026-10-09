@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup start stop restart logs status doctor migrate backup encrypt-evidence test lint build clean
+.PHONY: help setup start stop restart logs status doctor migrate backup encrypt-evidence test lint build release-gate clean
 
 help:
 	@echo "AEGISAI local security lab"
@@ -15,6 +15,7 @@ help:
 	@echo "  make encrypt-evidence  Encrypt legacy evidence after configuring its key"
 	@echo "  make test     Run backend tests in Docker"
 	@echo "  make lint     Run backend lint and frontend lint in Docker"
+	@echo "  make release-gate  Validate the locked evaluation release policy"
 	@echo "  make clean    Stop the lab and remove local evaluation data"
 
 setup:
@@ -61,6 +62,9 @@ lint:
 
 build:
 	docker compose build
+
+release-gate:
+	docker compose run --rm --no-deps api python scripts/release_gate.py
 
 clean:
 	docker compose down --volumes --remove-orphans

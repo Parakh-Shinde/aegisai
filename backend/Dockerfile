@@ -15,6 +15,7 @@ COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
 COPY scripts ./scripts
+COPY release ./release
 COPY tests ./tests
 
 RUN mkdir /data && chown -R aegisai:aegisai /app /data

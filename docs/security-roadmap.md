@@ -106,16 +106,19 @@ Recommended design:
 - optional LLM-as-judge runs only on uncertain or high-risk results
 - every judge decision stores rationale and version
 
-## v17: CI Release Gate
+## v17: CI Release Gate — implemented as v0.5 foundation
 
-Goal: block unsafe model or prompt changes in automation.
+The free GitHub Actions pipeline now validates an approved corpus/scoring lock,
+publishes a deterministic release-integrity report, and creates a GitHub
+artifact attestation on public `main` pushes. The required status check is
+named `release-gate`.
 
-A future CI job should:
+Real model behavior still needs a reviewed campaign because a local Ollama
+endpoint is not available to GitHub-hosted CI. The pipeline therefore proves
+repository evaluation integrity, while AEGISAI's runtime release gate proves
+candidate campaign quality.
 
-1. start the backend with test configuration
-2. run a fixed corpus against a test model or mock adapter
-3. fail if high-risk findings are present
-4. publish the campaign report as an artifact
+See [Release Automation](release-automation.md) for the operating procedure.
 
 ## v18: Enterprise Controls
 

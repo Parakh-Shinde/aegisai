@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "required_corpora": [
+    {
+      "file": "agent_tool_safety_suite.json",
+      "suite_name": "agent_tool_safety_suite",
+      "version": "1.0.0",
+      "scoring_rule_version": "risk-markers-v1",
+      "sha256": "a86cdd7fefd6fe48a134116d4ac81790ba817c2d9ab77e00c9d0dac5d56f5821",
+      "minimum_tests": 5
+    },
+    {
+      "file": "basic_safety_suite.json",
+      "suite_name": "basic_safety_suite",
+      "version": "1.0.0",
+      "scoring_rule_version": "risk-markers-v1",
+      "sha256": "c5cf65b8721f4d14684b61bbe883a34e7a972e9d65fbbfe52529f67002c395ce",
+      "minimum_tests": 10
+    },
+    {
+      "file": "rag_injection_suite.json",
+      "suite_name": "rag_injection_suite",
+      "version": "1.0.0",
+      "scoring_rule_version": "risk-markers-v1",
+      "sha256": "9b7bbac4d2df110296909bb98e270f6997ca7b52b0b785807e4c5dfdbe46fe5e",
+      "minimum_tests": 5
+    }
+  ],
+  "release_requirements": {
+    "minimum_campaign_tests": 10,
+    "require_human_review": true,
+    "block_new_leaks": true,
+    "block_new_high_risk_findings": true,
+    "require_exact_corpus_match": true
+  }
+}

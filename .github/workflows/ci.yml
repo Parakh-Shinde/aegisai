@@ -107,3 +107,37 @@ jobs:
         run: |
           terraform init -backend=false
           terraform validate
+
+  release-gate:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Enforce evaluation release policy
+        working-directory: backend
+        run: python scripts/release_gate.py --source-revision "$GITHUB_SHA"
+
+      - name: Upload release-integrity report
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisai-release-integrity
+          path: backend/build/release-integrity.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attest release-integrity report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.private == false
+        uses: actions/attest@v4
+        with:
+          subject-path: backend/build/release-integrity.json
