@@ -701,6 +701,19 @@ textarea:focus {
   color: #fde68a !important;
 }
 
+.decision-open,
+.decision-in-progress {
+  color: #bfdbfe !important;
+}
+
+.decision-resolved {
+  color: #86efac !important;
+}
+
+.decision-accepted-risk {
+  color: #fca5a5 !important;
+}
+
 .results-count {
   padding: 12px 20px;
   color: #94a3b8;

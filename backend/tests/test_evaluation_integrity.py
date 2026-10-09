@@ -1,5 +1,5 @@
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
@@ -9,6 +9,7 @@ from app.api.security_tests import (  # noqa: E402
     build_scorecard,
     campaign_evidence_fingerprint,
     load_corpus_suite,
+    triage_due_at,
 )
 from app.db.models import EvaluationBaseline, SecurityTestResultRecord  # noqa: E402
 
@@ -122,3 +123,11 @@ def test_regression_gate_requires_review_for_different_corpus() -> None:
 
     assert response.decision == "manual_review_required"
     assert "different corpus" in response.reason.lower()
+
+
+def test_finding_sla_deadlines_match_severity() -> None:
+    now = datetime(2026, 10, 9, tzinfo=UTC)
+
+    assert triage_due_at("high", now) == now + timedelta(hours=24)
+    assert triage_due_at("medium", now) == now + timedelta(hours=72)
+    assert triage_due_at("none", now) == now + timedelta(days=7)

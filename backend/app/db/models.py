@@ -163,6 +163,23 @@ class SecurityTestResultRecord(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    triage_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="open",
+        index=True,
+    )
+    assigned_to_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    sla_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class EvaluationBaseline(Base):

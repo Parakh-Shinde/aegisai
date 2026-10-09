@@ -21,6 +21,10 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > Compose resource limits are documented in
 > [Operational Readiness](docs/operational-readiness.md).
 
+> **Finding triage:** analyst ownership, stateful remediation, SLA visibility,
+> and audited resolution decisions are documented in
+> [Finding Triage](docs/finding-triage.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**

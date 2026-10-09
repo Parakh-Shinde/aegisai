@@ -15,6 +15,13 @@ type Dashboard = {
   avg_latency_ms: number;
 };
 
+type FindingQueue = {
+  active_findings: number;
+  unassigned_findings: number;
+  overdue_findings: number;
+  high_severity_open: number;
+};
+
 type SecurityResult = {
   test_id: string;
   created_at: string;
@@ -32,6 +39,10 @@ type SecurityResult = {
   review_status: string;
   review_notes: string | null;
   reviewed_at: string | null;
+  triage_status: string;
+  assigned_to_user_id: string | null;
+  sla_due_at: string | null;
+  resolution_notes: string | null;
 };
 
 type SuiteResponse = {
@@ -329,6 +340,7 @@ export default function App() {
   const [userPrompt, setUserPrompt] = useState(DEFAULT_PROMPTS["prompt-injection"]);
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [findingQueue, setFindingQueue] = useState<FindingQueue | null>(null);
   const [results, setResults] = useState<SecurityResult[]>([]);
   const [suite, setSuite] = useState<SuiteResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SecurityResult | null>(null);
@@ -348,6 +360,7 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
+  const [triageFilter, setTriageFilter] = useState("all");
 
   const [liveSteps, setLiveSteps] = useState<LiveStep[]>(buildWaitingSteps());
   const [isLoading, setIsLoading] = useState(false);
@@ -362,10 +375,12 @@ export default function App() {
       const riskMatch = riskFilter === "all" || result.risk_status === riskFilter;
       const severityMatch =
         severityFilter === "all" || result.severity === severityFilter;
+      const triageMatch =
+        triageFilter === "all" || result.triage_status === triageFilter;
 
-      return categoryMatch && riskMatch && severityMatch;
+      return categoryMatch && riskMatch && severityMatch && triageMatch;
     });
-  }, [categoryFilter, results, riskFilter, severityFilter]);
+  }, [categoryFilter, results, riskFilter, severityFilter, triageFilter]);
 
   const blockedCount = suite?.blocked ?? results.filter((r) => r.risk_status === "blocked").length;
   const leakedCount = suite?.leaked ?? results.filter((r) => r.risk_status === "leaked").length;
@@ -377,15 +392,17 @@ export default function App() {
     setError("");
 
     try {
-      const [dashboardData, resultsData, comparisonData] = await Promise.all([
+      const [dashboardData, resultsData, comparisonData, findingQueueData] = await Promise.all([
         apiGet<Dashboard>("/security-tests/dashboard"),
         apiGet<SecurityResult[]>("/security-tests/results?limit=50"),
         apiGet<ModelComparison[]>("/security-tests/models/compare"),
+        apiGet<FindingQueue>("/security-tests/findings/queue"),
       ]);
 
       setDashboard(dashboardData);
       setResults(resultsData);
       setModelComparison(comparisonData);
+      setFindingQueue(findingQueueData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh dashboard");
     }
@@ -661,6 +678,43 @@ export default function App() {
     }
   }
 
+  async function updateTriage(
+    testId: string,
+    triageStatus: string,
+    assignToMe = false,
+    resolutionNotes?: string,
+  ) {
+    setError("");
+    try {
+      const updated = await apiSend<SecurityResult>(
+        `/security-tests/results/${testId}/triage`,
+        "PATCH",
+        {
+          triage_status: triageStatus,
+          assign_to_me: assignToMe,
+          resolution_notes: resolutionNotes,
+        },
+      );
+      setResults((current) =>
+        current.map((result) => (result.test_id === testId ? updated : result)),
+      );
+      if (selectedResult?.test_id === testId) {
+        setSelectedResult(updated);
+      }
+      await refreshDashboard();
+      setMessage(`Finding triage updated: ${triageStatus.replaceAll("_", " ")}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Finding triage update failed");
+    }
+  }
+
+  function resolveFinding(testId: string) {
+    const notes = window.prompt("Add a resolution note for the audit log:");
+    if (notes?.trim()) {
+      void updateTriage(testId, "resolved", true, notes);
+    }
+  }
+
   async function exportCampaignReport() {
     const id = campaignId || suite?.suite_id;
     if (!id) {
@@ -724,6 +778,7 @@ export default function App() {
           <a href="#testing">Run Tests</a>
           <a href="#live">Live Testing</a>
           <a href="#review">Review</a>
+          <a href="#findings">Findings</a>
           <a href="#integrity">Integrity</a>
           <a href="#models">Models</a>
           <a href="#history">History</a>
@@ -999,6 +1054,25 @@ export default function App() {
                   </article>
                 </div>
               ) : null}
+
+              <div className="review-mini finding-queue" id="findings">
+                <article>
+                  <span>Active findings</span>
+                  <strong>{findingQueue?.active_findings ?? 0}</strong>
+                </article>
+                <article>
+                  <span>Unassigned</span>
+                  <strong>{findingQueue?.unassigned_findings ?? 0}</strong>
+                </article>
+                <article>
+                  <span>Overdue SLA</span>
+                  <strong>{findingQueue?.overdue_findings ?? 0}</strong>
+                </article>
+                <article>
+                  <span>High severity</span>
+                  <strong>{findingQueue?.high_severity_open ?? 0}</strong>
+                </article>
+              </div>
             </section>
 
             <section className="panel" id="integrity">
@@ -1137,12 +1211,27 @@ export default function App() {
               </select>
             </label>
 
+            <label>
+              Triage
+              <select
+                value={triageFilter}
+                onChange={(event) => setTriageFilter(event.target.value)}
+              >
+                <option value="all">All</option>
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="resolved">Resolved</option>
+                <option value="accepted_risk">Accepted Risk</option>
+              </select>
+            </label>
+
             <button
               className="reset-button"
               onClick={() => {
                 setCategoryFilter("all");
                 setRiskFilter("all");
                 setSeverityFilter("all");
+                setTriageFilter("all");
               }}
             >
               Reset
@@ -1162,6 +1251,7 @@ export default function App() {
                   <th>Result</th>
                   <th>Severity</th>
                   <th>Review</th>
+                  <th>Triage</th>
                   <th>Finding</th>
                   <th>Latency</th>
                   <th>Model</th>
@@ -1189,6 +1279,11 @@ export default function App() {
                       </span>
                     </td>
                     <td>{result.review_status}</td>
+                    <td>
+                      <span className={badgeClass("decision", result.triage_status)}>
+                        {result.triage_status.replaceAll("_", " ")}
+                      </span>
+                    </td>
                     <td>{result.finding}</td>
                     <td>{result.latency_ms} ms</td>
                     <td>{result.model}</td>
@@ -1208,6 +1303,20 @@ export default function App() {
                           }
                         >
                           Safe
+                        </button>
+                        <button
+                          className="details-button"
+                          onClick={() =>
+                            void updateTriage(result.test_id, "in_progress", true)
+                          }
+                        >
+                          Claim
+                        </button>
+                        <button
+                          className="export-button"
+                          onClick={() => resolveFinding(result.test_id)}
+                        >
+                          Resolve
                         </button>
                         <button
                           className="delete-button"
@@ -1259,6 +1368,18 @@ export default function App() {
                   <span>Review</span>
                   <strong>{selectedResult.review_status}</strong>
                 </article>
+                <article>
+                  <span>Triage</span>
+                  <strong>{selectedResult.triage_status.replaceAll("_", " ")}</strong>
+                </article>
+                <article>
+                  <span>SLA due</span>
+                  <strong>
+                    {selectedResult.sla_due_at
+                      ? formatDate(selectedResult.sla_due_at)
+                      : "not set"}
+                  </strong>
+                </article>
               </div>
 
               <div className="evidence-block">
@@ -1280,6 +1401,13 @@ export default function App() {
                 <h3>Recommendation</h3>
                 <p>{selectedResult.recommendation}</p>
               </div>
+
+              {selectedResult.resolution_notes ? (
+                <div className="evidence-block">
+                  <h3>Resolution Notes</h3>
+                  <p>{selectedResult.resolution_notes}</p>
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}

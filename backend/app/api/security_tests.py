@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
 from typing import Annotated
@@ -50,6 +50,7 @@ VALID_REVIEW_STATUSES = {
     "false_positive",
     "needs_retest",
 }
+VALID_TRIAGE_STATUSES = {"open", "in_progress", "resolved", "accepted_risk"}
 
 
 def tenant_records_query(db: Session) -> Select[SecurityTestResultRecord]:
@@ -92,6 +93,15 @@ class ReviewUpdateRequest(BaseModel):
     review_notes: str | None = Field(default=None, max_length=MAX_REVIEW_NOTES_LENGTH)
 
 
+class TriageUpdateRequest(BaseModel):
+    triage_status: str
+    assign_to_me: bool = False
+    resolution_notes: str | None = Field(
+        default=None,
+        max_length=MAX_REVIEW_NOTES_LENGTH,
+    )
+
+
 class SecurityTestResultResponse(BaseModel):
     test_id: str
     created_at: str
@@ -109,6 +119,10 @@ class SecurityTestResultResponse(BaseModel):
     review_status: str
     review_notes: str | None = None
     reviewed_at: str | None = None
+    triage_status: str
+    assigned_to_user_id: str | None = None
+    sla_due_at: str | None = None
+    resolution_notes: str | None = None
 
 
 class SecurityTestSummary(BaseModel):
@@ -131,6 +145,13 @@ class SecurityDashboard(BaseModel):
     blocked_rate_percent: float
     high_risk_tests: int
     avg_latency_ms: int
+
+
+class FindingQueueResponse(BaseModel):
+    active_findings: int
+    unassigned_findings: int
+    overdue_findings: int
+    high_severity_open: int
 
 
 class BasicSuiteResponse(BaseModel):
@@ -279,7 +300,20 @@ def result_record_to_response(
         review_status=record.review_status,
         review_notes=record.review_notes,
         reviewed_at=record.reviewed_at.isoformat() if record.reviewed_at else None,
+        triage_status=record.triage_status,
+        assigned_to_user_id=record.assigned_to_user_id,
+        sla_due_at=record.sla_due_at.isoformat() if record.sla_due_at else None,
+        resolution_notes=record.resolution_notes,
     )
+
+
+def triage_due_at(severity: str, now: datetime | None = None) -> datetime:
+    current_time = now or datetime.now(UTC)
+    if severity == "high":
+        return current_time + timedelta(hours=24)
+    if severity == "medium":
+        return current_time + timedelta(hours=72)
+    return current_time + timedelta(days=7)
 
 
 def load_corpus_suite(suite_name: str) -> CorpusSuiteDefinition:
@@ -1148,6 +1182,10 @@ def run_single_security_test(
         review_status="unreviewed",
         review_notes=None,
         reviewed_at=None,
+        triage_status="open",
+        assigned_to_user_id=None,
+        sla_due_at=triage_due_at(severity),
+        resolution_notes=None,
     )
 
     db.add(record)
@@ -1730,6 +1768,129 @@ def update_security_test_review(
     db.commit()
     db.refresh(record)
 
+    return result_record_to_response(record)
+
+
+@router.get("/findings", response_model=list[SecurityTestResultResponse])
+def list_findings(
+    db: DBSession,
+    triage_status: str = Query(default="open"),
+    severity: str | None = Query(default=None),
+    assigned: bool | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[SecurityTestResultResponse]:
+    if triage_status != "all" and triage_status not in VALID_TRIAGE_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid triage status.")
+    if severity is not None and severity not in {"medium", "high"}:
+        raise HTTPException(status_code=400, detail="Findings must be medium or high.")
+
+    statement = tenant_records_query(db).where(
+        SecurityTestResultRecord.severity.in_(("medium", "high"))
+    )
+    if triage_status != "all":
+        statement = statement.where(
+            SecurityTestResultRecord.triage_status == triage_status
+        )
+    if severity is not None:
+        statement = statement.where(SecurityTestResultRecord.severity == severity)
+    if assigned is True:
+        statement = statement.where(
+            SecurityTestResultRecord.assigned_to_user_id.is_not(None)
+        )
+    if assigned is False:
+        statement = statement.where(
+            SecurityTestResultRecord.assigned_to_user_id.is_(None)
+        )
+
+    records = db.scalars(
+        statement.order_by(
+            SecurityTestResultRecord.sla_due_at.asc(),
+            SecurityTestResultRecord.created_at.desc(),
+        ).limit(limit)
+    ).all()
+    return [result_record_to_response(record) for record in records]
+
+
+@router.get("/findings/queue", response_model=FindingQueueResponse)
+def get_finding_queue(db: DBSession) -> FindingQueueResponse:
+    now = datetime.now(UTC)
+    records = db.scalars(
+        tenant_records_query(db).where(
+            SecurityTestResultRecord.severity.in_(("medium", "high"))
+        )
+    ).all()
+    active = [
+        record
+        for record in records
+        if record.triage_status in {"open", "in_progress"}
+    ]
+    return FindingQueueResponse(
+        active_findings=len(active),
+        unassigned_findings=sum(
+            1 for record in active if record.assigned_to_user_id is None
+        ),
+        overdue_findings=sum(
+            1
+            for record in active
+            if record.sla_due_at is not None and record.sla_due_at < now
+        ),
+        high_severity_open=sum(
+            1 for record in active if record.severity == "high"
+        ),
+    )
+
+
+@router.patch(
+    "/results/{test_id}/triage",
+    response_model=SecurityTestResultResponse,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
+def update_finding_triage(
+    test_id: str,
+    request: TriageUpdateRequest,
+    db: DBSession,
+) -> SecurityTestResultResponse:
+    validate_identifier(test_id, "test_id")
+    if request.triage_status not in VALID_TRIAGE_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid triage status.")
+    if request.triage_status in {"resolved", "accepted_risk"} and not (
+        request.resolution_notes and request.resolution_notes.strip()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Resolution notes are required for a terminal triage status.",
+        )
+
+    record = db.scalar(
+        tenant_records_query(db).where(SecurityTestResultRecord.test_id == test_id)
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Security test result not found: {test_id}",
+        )
+
+    actor = request_actor(db)
+    record.triage_status = request.triage_status
+    if request.assign_to_me:
+        record.assigned_to_user_id = actor.user_id
+    if request.resolution_notes is not None:
+        record.resolution_notes = request.resolution_notes.strip() or None
+
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="security_test.triage",
+        resource_type="security_test_result",
+        resource_id=record.test_id,
+        details={
+            "triage_status": request.triage_status,
+            "assigned_to_actor": request.assign_to_me,
+        },
+    )
+    db.commit()
+    db.refresh(record)
     return result_record_to_response(record)
 
 
