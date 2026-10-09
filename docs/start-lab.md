@@ -99,12 +99,13 @@ curl "http://127.0.0.1:8000/security-tests/release-gate?model=qwen2.5:3b"
 Set `AEGISAI_API_KEY` in `.env` to protect security-test endpoints:
 
 ```env
-AEGISAI_API_KEY=change-this-local-lab-key
+# Set this locally to a random value; do not commit the real value.
+AEGISAI_API_KEY=<your-random-local-key>
 ```
 
 Then send it with requests:
 
 ```bash
 curl http://127.0.0.1:8000/security-tests/summary \
-  -H "X-API-Key: change-this-local-lab-key"
+  -H "X-API-Key: ${AEGISAI_API_KEY}"
 ```
