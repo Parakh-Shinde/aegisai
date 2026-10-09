@@ -1,6 +1,9 @@
 import hashlib
 import json
+from collections.abc import Sequence
+from csv import writer
 from dataclasses import dataclass
+from io import StringIO
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -118,3 +121,45 @@ def verify_audit_chain(db: Session, organization_id: str) -> AuditChainVerificat
         previous_hash = record.entry_hash
 
     return AuditChainVerification(valid=True, checked_entries=len(records))
+
+
+def export_audit_logs_csv(records: Sequence[AuditLog]) -> str:
+    """Create a spreadsheet-safe audit export for one organization's records."""
+    output = StringIO(newline="")
+    csv_writer = writer(output)
+    csv_writer.writerow(
+        [
+            "id",
+            "created_at",
+            "actor_id",
+            "action",
+            "resource_type",
+            "resource_id",
+            "details_json",
+            "previous_hash",
+            "entry_hash",
+        ]
+    )
+    for record in records:
+        csv_writer.writerow(
+            [
+                _spreadsheet_safe(record.id),
+                record.created_at.isoformat(),
+                _spreadsheet_safe(record.actor_id or ""),
+                _spreadsheet_safe(record.action),
+                _spreadsheet_safe(record.resource_type),
+                _spreadsheet_safe(record.resource_id or ""),
+                _spreadsheet_safe(
+                    json.dumps(record.details, sort_keys=True, separators=(",", ":"))
+                ),
+                _spreadsheet_safe(record.previous_hash or ""),
+                _spreadsheet_safe(record.entry_hash),
+            ]
+        )
+    return output.getvalue()
+
+
+def _spreadsheet_safe(value: str) -> str:
+    if value.startswith(("=", "+", "-", "@")):
+        return f"'{value}"
+    return value

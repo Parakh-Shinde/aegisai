@@ -8,6 +8,7 @@ DEVELOPMENT_JWT_SECRET = "development-only-secret-change-before-production"
 @dataclass(frozen=True)
 class Settings:
     environment: str
+    database_url: str
     auth_required: bool
     jwt_secret: str
     jwt_issuer: str
@@ -34,6 +35,7 @@ class Settings:
 def get_settings() -> Settings:
     environment = os.getenv("AEGISAI_ENVIRONMENT", "development")
     is_production = environment.lower() == "production"
+    database_url = os.getenv("DATABASE_URL", "")
     auth_required = (
         os.getenv(
             "AEGISAI_AUTH_REQUIRED",
@@ -57,6 +59,8 @@ def get_settings() -> Settings:
     if is_production and not auth_required:
         raise RuntimeError("AEGISAI_AUTH_REQUIRED must be true in production.")
     if is_production:
+        if not database_url.startswith("postgresql+"):
+            raise RuntimeError("DATABASE_URL must use PostgreSQL in production.")
         if (
             not jwt_secret
             or jwt_secret == DEVELOPMENT_JWT_SECRET
@@ -95,6 +99,7 @@ def get_settings() -> Settings:
 
     return Settings(
         environment=environment,
+        database_url=database_url,
         auth_required=auth_required,
         jwt_secret=jwt_secret or DEVELOPMENT_JWT_SECRET,
         jwt_issuer=os.getenv("AEGISAI_JWT_ISSUER", "aegisai"),

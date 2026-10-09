@@ -18,6 +18,10 @@ def test_production_requires_explicit_cors_and_trusted_hosts(
 ) -> None:
     monkeypatch.setenv("AEGISAI_ENVIRONMENT", "production")
     monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://aegisai:password@postgres:5432/aegisai",
+    )
     monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
     encryption_key = Fernet.generate_key().decode()
     monkeypatch.setenv("AEGISAI_EVIDENCE_ENCRYPTION_KEY", encryption_key)
@@ -37,6 +41,10 @@ def test_production_requires_redis_and_async_campaigns(
 ) -> None:
     monkeypatch.setenv("AEGISAI_ENVIRONMENT", "production")
     monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://aegisai:password@postgres:5432/aegisai",
+    )
     monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
     monkeypatch.setenv(
         "AEGISAI_EVIDENCE_ENCRYPTION_KEY",
@@ -53,6 +61,17 @@ def test_production_requires_redis_and_async_campaigns(
     monkeypatch.setenv("AEGISAI_REDIS_URL", "redis://redis:6379/0")
     monkeypatch.setenv("AEGISAI_ASYNC_CAMPAIGNS", "false")
     with pytest.raises(RuntimeError, match="ASYNC_CAMPAIGNS"):
+        get_settings()
+
+
+def test_production_rejects_non_postgresql_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_ENVIRONMENT", "production")
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./aegisai.db")
+
+    with pytest.raises(RuntimeError, match="PostgreSQL"):
         get_settings()
 
 

@@ -16,6 +16,11 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > release-integrity report, and attests that report on public `main` pushes.
 > See [Release Automation](docs/release-automation.md).
 
+> **Operational readiness:** readiness checks, production configuration
+> validation, checksummed backups, recoverable restores, audit export, and
+> Compose resource limits are documented in
+> [Operational Readiness](docs/operational-readiness.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**

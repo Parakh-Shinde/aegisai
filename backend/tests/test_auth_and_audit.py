@@ -10,7 +10,11 @@ from app.core.auth import (  # noqa: E402
     verify_password,
 )
 from app.db.models import AuditLog, Base, Organization, User, UserRole  # noqa: E402
-from app.services.audit import verify_audit_chain, write_audit_log  # noqa: E402
+from app.services.audit import (  # noqa: E402
+    export_audit_logs_csv,
+    verify_audit_chain,
+    write_audit_log,
+)
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -84,3 +88,28 @@ def test_local_actor_is_available_from_the_request_db_session(monkeypatch) -> No
         actor = get_current_actor(db, None)
 
         assert request_actor(db) == actor
+
+
+def test_audit_csv_export_neutralizes_spreadsheet_formulas() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        organization = Organization(id="organization-1", name="Org One", slug="org-one")
+        entry = AuditLog(
+            id="audit-1",
+            organization_id=organization.id,
+            actor_id=None,
+            action="=HYPERLINK(\"https://attacker.example\")",
+            resource_type="test",
+            resource_id=None,
+            details={},
+            previous_hash=None,
+            entry_hash="hash",
+        )
+        db.add_all([organization, entry])
+        db.flush()
+
+        csv_output = export_audit_logs_csv([entry])
+
+    assert "'=HYPERLINK" in csv_output

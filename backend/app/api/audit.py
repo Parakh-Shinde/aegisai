@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,7 +11,7 @@ from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.db.models import AuditLog, UserRole
-from app.services.audit import verify_audit_chain
+from app.services.audit import export_audit_logs_csv, verify_audit_chain
 
 router = APIRouter(
     prefix="/audit-logs",
@@ -81,4 +82,26 @@ def verify_current_organization_audit_chain(
         valid=verification.valid,
         checked_entries=verification.checked_entries,
         invalid_entry_id=verification.invalid_entry_id,
+    )
+
+
+@router.get("/export")
+def export_audit_logs(
+    db: DBSession,
+    limit: int = Query(default=1_000, ge=1, le=10_000),
+) -> Response:
+    actor = request_actor(db)
+    records = db.scalars(
+        select(AuditLog)
+        .where(AuditLog.organization_id == actor.organization_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+    ).all()
+    return Response(
+        content=export_audit_logs_csv(records),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="aegisai-audit-logs.csv"',
+            "Cache-Control": "no-store",
+        },
     )

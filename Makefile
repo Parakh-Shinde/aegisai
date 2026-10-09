@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup start stop restart logs status doctor migrate backup encrypt-evidence test lint build release-gate clean
+.PHONY: help setup start stop restart logs status doctor config-check migrate backup verify-backup restore encrypt-evidence test lint build release-gate clean
 
 help:
 	@echo "AEGISAI local security lab"
@@ -10,8 +10,11 @@ help:
 	@echo "  make logs     Follow service logs"
 	@echo "  make status   Show service status"
 	@echo "  make doctor   Validate the Docker configuration"
+	@echo "  make config-check  Validate effective AEGISAI settings without printing secrets"
 	@echo "  make migrate  Apply PostgreSQL schema migrations"
-	@echo "  make backup   Save a timestamped PostgreSQL backup under backups/"
+	@echo "  make backup   Save a checksummed PostgreSQL backup under backups/"
+	@echo "  make verify-backup BACKUP=backups/file.dump  Verify a backup before storing or restoring it"
+	@echo "  make restore BACKUP=backups/file.dump CONFIRM_RESTORE=YES  Replace the database from a verified backup"
 	@echo "  make encrypt-evidence  Encrypt legacy evidence after configuring its key"
 	@echo "  make test     Run backend tests in Docker"
 	@echo "  make lint     Run backend lint and frontend lint in Docker"
@@ -42,13 +45,22 @@ doctor:
 	docker compose config --quiet
 	@echo "Docker configuration is valid."
 
+config-check:
+	docker compose run --rm --no-deps api python scripts/verify_runtime_config.py
+
 migrate:
 	docker compose exec api alembic upgrade head
 
 backup:
-	@mkdir -p backups
-	docker compose exec -T postgres pg_dump -U "$${POSTGRES_USER:-aegisai}" "$${POSTGRES_DB:-aegisai}" > backups/aegisai-$$(date +%Y%m%d-%H%M%S).sql
-	@echo "Database backup saved under backups/."
+	scripts/backup.sh
+
+verify-backup:
+	@test -n "$(BACKUP)" || (echo "Set BACKUP=backups/file.dump" >&2; exit 2)
+	scripts/verify_backup.sh "$(BACKUP)"
+
+restore:
+	@test -n "$(BACKUP)" || (echo "Set BACKUP=backups/file.dump" >&2; exit 2)
+	CONFIRM_RESTORE="$(CONFIRM_RESTORE)" scripts/restore.sh "$(BACKUP)"
 
 encrypt-evidence:
 	docker compose exec api python scripts/encrypt_existing_evidence.py

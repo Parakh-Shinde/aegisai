@@ -89,6 +89,10 @@ def test_production_rejects_the_known_development_jwt_secret(
 ) -> None:
     monkeypatch.setenv("AEGISAI_ENVIRONMENT", "production")
     monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://aegisai:password@postgres:5432/aegisai",
+    )
     monkeypatch.setenv("AEGISAI_JWT_SECRET", DEVELOPMENT_JWT_SECRET)
     monkeypatch.setenv("AEGISAI_EVIDENCE_ENCRYPTION_KEY", "a" * 44)
 

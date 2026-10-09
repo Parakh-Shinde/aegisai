@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from redis import Redis
+from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
@@ -12,6 +14,7 @@ from app.api.auth import router as auth_router
 from app.api.model_registry import router as model_registry_router
 from app.api.security_tests import router as security_tests_router
 from app.core.config import get_settings
+from app.core.database import SessionLocal
 from app.db import models as db_models  # noqa: F401
 
 
@@ -149,3 +152,37 @@ def root() -> dict[str, str]:
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "aegisai-api"}
+
+
+@app.get("/ready")
+def readiness_check() -> Response:
+    """Confirm dependencies required for accepting work are reachable."""
+    checks: dict[str, str] = {}
+
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception:
+        checks["database"] = "unavailable"
+
+    if settings.async_campaigns:
+        try:
+            if not settings.redis_url:
+                raise RuntimeError("Redis is not configured")
+            client = Redis.from_url(
+                settings.redis_url,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            )
+            client.ping()
+            client.close()
+            checks["redis"] = "ok"
+        except Exception:
+            checks["redis"] = "unavailable"
+
+    ready = all(status == "ok" for status in checks.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ok" if ready else "unavailable", "checks": checks},
+    )
