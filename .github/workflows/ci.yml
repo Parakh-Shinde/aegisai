@@ -31,8 +31,8 @@ jobs:
 
       - name: Run backend tests
         env:
-          DATABASE_URL: sqlite:///:memory:
-          OLLAMA_BASE_URL: http://127.0.0.1:11434
+          DATABASE_URL: "sqlite:///:memory:"
+          OLLAMA_BASE_URL: "http://127.0.0.1:11434"
         run: pytest
 
       - name: Scan Python dependencies
