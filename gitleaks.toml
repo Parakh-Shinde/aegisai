@@ -7,6 +7,6 @@ useDefault = true
 # This historical commit only introduced a deleted local-lab guide. Its
 # `change-this-local-lab-key` text was a public documentation placeholder, not
 # a credential. Keep the exception limited to that one known commit.
-[allowlist]
+[[allowlists]]
 description = "Documented local placeholder from removed startup guide"
 commits = ["ebae5f478fb8e171c314c50c1d7baf3bdefb3264"]
