@@ -37,6 +37,10 @@ type SecurityResult = {
 type SuiteResponse = {
   suite_id: string;
   model: string;
+  corpus_suite_name: string;
+  corpus_version: string;
+  corpus_digest: string;
+  scoring_rule_version: string;
   total_tests: number;
   blocked: number;
   uncertain: number;
@@ -106,6 +110,62 @@ type CampaignJob = {
   campaign_id: string;
   status: string;
   result: SuiteResponse | null;
+};
+
+type CorpusProvenance = {
+  suite_name: string;
+  version: string;
+  scoring_rule_version: string;
+  digest: string;
+};
+
+type CampaignReport = {
+  report_schema_version: string;
+  campaign_id: string;
+  model: string;
+  corpus: CorpusProvenance;
+  evidence_fingerprint: string;
+  scorecard: Scorecard;
+  release_gate: ReleaseGate;
+  results: SecurityResult[];
+};
+
+type Scorecard = {
+  model: string;
+  total_tests: number;
+  safety_score: number;
+  blocked: number;
+  uncertain: number;
+  leaked: number;
+  high_risk_tests: number;
+  prompt_injection_score: number;
+  sensitive_data_score: number;
+  jailbreak_score: number;
+  privacy_score: number;
+  tool_injection_score: number;
+  avg_latency_ms: number;
+};
+
+type EvaluationBaseline = {
+  name: string;
+  source_campaign_id: string;
+  model: string;
+  corpus: CorpusProvenance;
+  safety_score: number;
+  created_at: string;
+};
+
+type RegressionGate = {
+  baseline_name: string;
+  baseline_model: string;
+  candidate_model: string;
+  campaign_id: string;
+  decision: string;
+  reason: string;
+  safety_score_delta: number;
+  leaked_test_delta: number;
+  uncertain_test_delta: number;
+  high_risk_test_delta: number;
 };
 
 const DEFAULT_PROMPTS: Record<TestType, string> = {
@@ -276,6 +336,10 @@ export default function App() {
   const [campaignId, setCampaignId] = useState("");
   const [reviewSummary, setReviewSummary] = useState<ReviewSummary | null>(null);
   const [releaseGate, setReleaseGate] = useState<ReleaseGate | null>(null);
+  const [campaignReport, setCampaignReport] = useState<CampaignReport | null>(null);
+  const [baselines, setBaselines] = useState<EvaluationBaseline[]>([]);
+  const [baselineName, setBaselineName] = useState("approved-v1");
+  const [regressionGate, setRegressionGate] = useState<RegressionGate | null>(null);
   const [modelComparison, setModelComparison] = useState<ModelComparison[]>([]);
 
   const [apiHealth, setApiHealth] = useState<HealthStatus | null>(null);
@@ -439,6 +503,7 @@ export default function App() {
         refreshDashboard(),
         loadCampaign(data.suite_id),
         checkReleaseGate(data.suite_id),
+        loadEvaluationIntegrity(data.suite_id),
       ]);
     } catch (err) {
       setLiveSteps((current) =>
@@ -497,6 +562,71 @@ export default function App() {
     }
   }
 
+  async function loadEvaluationIntegrity(id = campaignId) {
+    if (!id.trim()) {
+      setError("Enter a campaign ID first.");
+      return;
+    }
+
+    setError("");
+    try {
+      const [report, savedBaselines] = await Promise.all([
+        apiGet<CampaignReport>(`/security-tests/campaigns/${id}/report`),
+        apiGet<EvaluationBaseline[]>("/security-tests/baselines"),
+      ]);
+      setCampaignReport(report);
+      setBaselines(savedBaselines);
+      if (savedBaselines.length > 0 && !savedBaselines.some((item) => item.name === baselineName)) {
+        setBaselineName(savedBaselines[0].name);
+      }
+      setMessage(`Integrity report loaded: ${report.corpus.suite_name} v${report.corpus.version}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load integrity report");
+    }
+  }
+
+  async function createBaseline() {
+    if (!campaignId.trim()) {
+      setError("Enter a campaign ID first.");
+      return;
+    }
+    if (!baselineName.trim()) {
+      setError("Enter a baseline name first.");
+      return;
+    }
+
+    setError("");
+    try {
+      const baseline = await apiSend<EvaluationBaseline>(
+        `/security-tests/campaigns/${campaignId}/baselines/${baselineName}`,
+        "POST",
+      );
+      setBaselines((current) => [baseline, ...current.filter((item) => item.name !== baseline.name)]);
+      setBaselineName(baseline.name);
+      setMessage(`Approved baseline saved: ${baseline.name}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save baseline");
+    }
+  }
+
+  async function checkRegression() {
+    if (!campaignId.trim() || !baselineName.trim()) {
+      setError("Enter a campaign ID and baseline name first.");
+      return;
+    }
+
+    setError("");
+    try {
+      const gate = await apiGet<RegressionGate>(
+        `/security-tests/campaigns/${campaignId}/regression?baseline_name=${encodeURIComponent(baselineName)}`,
+      );
+      setRegressionGate(gate);
+      setMessage(`Regression check: ${gate.decision}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Regression check failed");
+    }
+  }
+
   async function updateReviewStatus(testId: string, reviewStatus: string) {
     setError("");
 
@@ -521,6 +651,8 @@ export default function App() {
       if (campaignId) {
         await loadCampaign(campaignId);
         await checkReleaseGate(campaignId);
+        setCampaignReport(null);
+        setRegressionGate(null);
       }
 
       setMessage(`Review updated: ${reviewStatus}`);
@@ -529,29 +661,35 @@ export default function App() {
     }
   }
 
-  function exportCampaignReport() {
-    const report = {
-      exported_at: new Date().toISOString(),
-      campaign_id: campaignId || suite?.suite_id || null,
-      model,
-      dashboard,
-      suite,
-      review_summary: reviewSummary,
-      release_gate: releaseGate,
-      results,
-    };
+  async function exportCampaignReport() {
+    const id = campaignId || suite?.suite_id;
+    if (!id) {
+      setError("Run or load a campaign before exporting its report.");
+      return;
+    }
 
-    const blob = new Blob([JSON.stringify(report, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
+    setError("");
+    try {
+      const report = await apiGet<CampaignReport>(
+        `/security-tests/campaigns/${id}/report`,
+      );
 
-    anchor.href = url;
-    anchor.download = `${campaignId || "aegisai"}_security_report.json`;
-    anchor.click();
+      const blob = new Blob([JSON.stringify(report, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
 
-    URL.revokeObjectURL(url);
+      anchor.href = url;
+      anchor.download = `${id}_security_report.json`;
+      anchor.click();
+
+      URL.revokeObjectURL(url);
+      setCampaignReport(report);
+      setMessage("Reproducible campaign report exported.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export campaign report");
+    }
   }
 
   useEffect(() => {
@@ -586,6 +724,7 @@ export default function App() {
           <a href="#testing">Run Tests</a>
           <a href="#live">Live Testing</a>
           <a href="#review">Review</a>
+          <a href="#integrity">Integrity</a>
           <a href="#models">Models</a>
           <a href="#history">History</a>
         </nav>
@@ -830,7 +969,18 @@ export default function App() {
                 </label>
                 <button onClick={() => void loadCampaign()}>Load</button>
                 <button onClick={() => void checkReleaseGate()}>Release</button>
-                <button onClick={exportCampaignReport}>Export</button>
+                <button onClick={() => void exportCampaignReport()}>Export</button>
+                <button onClick={() => void loadEvaluationIntegrity()}>Integrity</button>
+                <label>
+                  Baseline name
+                  <input
+                    value={baselineName}
+                    onChange={(event) => setBaselineName(event.target.value)}
+                    placeholder="approved-v1"
+                  />
+                </label>
+                <button onClick={() => void createBaseline()}>Save Baseline</button>
+                <button onClick={() => void checkRegression()}>Compare</button>
               </div>
 
               {reviewSummary ? (
@@ -849,6 +999,44 @@ export default function App() {
                   </article>
                 </div>
               ) : null}
+            </section>
+
+            <section className="panel" id="integrity">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Evaluation Integrity</p>
+                  <h2>Versioned Evidence</h2>
+                </div>
+              </div>
+
+              {campaignReport ? (
+                <div className="review-mini">
+                  <article>
+                    <span>Corpus</span>
+                    <strong>
+                      {campaignReport.corpus.suite_name} v{campaignReport.corpus.version}
+                    </strong>
+                  </article>
+                  <article>
+                    <span>Evidence fingerprint</span>
+                    <strong>{campaignReport.evidence_fingerprint.slice(0, 16)}…</strong>
+                  </article>
+                  <article>
+                    <span>Approved baselines</span>
+                    <strong>{baselines.length}</strong>
+                  </article>
+                  <article>
+                    <span>Regression decision</span>
+                    <strong className={`decision-${regressionGate?.decision ?? "not-checked"}`}>
+                      {(regressionGate?.decision ?? "not_checked").replaceAll("_", " ")}
+                    </strong>
+                  </article>
+                </div>
+              ) : (
+                <p className="empty-state">
+                  Load an integrity report for a versioned campaign to inspect its corpus and evidence fingerprint.
+                </p>
+              )}
             </section>
           </aside>
         </section>

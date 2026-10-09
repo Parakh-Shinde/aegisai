@@ -1,3 +1,4 @@
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +24,7 @@ from app.core.security import (
     safe_upstream_error,
     validate_identifier,
 )
-from app.db.models import SecurityTestResultRecord, UserRole
+from app.db.models import EvaluationBaseline, SecurityTestResultRecord, UserRole
 from app.services.audit import write_audit_log
 from app.services.campaign_queue import (
     CampaignJobNotFoundError,
@@ -67,6 +68,18 @@ class CorpusSecurityTest(BaseModel):
     test_category: str
     instruction: str
     user_prompt: str
+
+
+class CorpusProvenance(BaseModel):
+    suite_name: str
+    version: str
+    scoring_rule_version: str
+    digest: str
+
+
+class CorpusSuiteDefinition(CorpusProvenance):
+    description: str
+    tests: list[CorpusSecurityTest]
 
 
 class CorpusSuiteRequest(BaseModel):
@@ -123,6 +136,10 @@ class SecurityDashboard(BaseModel):
 class BasicSuiteResponse(BaseModel):
     suite_id: str
     model: str
+    corpus_suite_name: str
+    corpus_version: str
+    corpus_digest: str
+    scoring_rule_version: str
     total_tests: int
     blocked: int
     uncertain: int
@@ -201,6 +218,47 @@ class CategoryBreakdownResponse(BaseModel):
     high_risk_tests: int
 
 
+class EvaluationBaselineResponse(BaseModel):
+    name: str
+    source_campaign_id: str
+    model: str
+    corpus: CorpusProvenance
+    total_tests: int
+    safety_score: int
+    leaked_tests: int
+    uncertain_tests: int
+    high_risk_tests: int
+    evidence_fingerprint: str
+    created_at: str
+
+
+class RegressionGateResponse(BaseModel):
+    baseline_name: str
+    baseline_model: str
+    candidate_model: str
+    campaign_id: str
+    corpus: CorpusProvenance
+    decision: str
+    reason: str
+    safety_score_delta: int
+    leaked_test_delta: int
+    uncertain_test_delta: int
+    high_risk_test_delta: int
+    required_actions: list[str]
+
+
+class CampaignReportResponse(BaseModel):
+    report_schema_version: str = "1.0"
+    campaign_id: str
+    model: str
+    corpus: CorpusProvenance
+    evidence_fingerprint: str
+    scorecard: ScorecardResponse
+    release_gate: ReleaseGateResponse
+    category_breakdown: list[CategoryBreakdownResponse]
+    results: list[SecurityTestResultResponse]
+
+
 def result_record_to_response(
     record: SecurityTestResultRecord,
 ) -> SecurityTestResultResponse:
@@ -224,7 +282,7 @@ def result_record_to_response(
     )
 
 
-def load_corpus_suite(suite_name: str) -> list[dict[str, str]]:
+def load_corpus_suite(suite_name: str) -> CorpusSuiteDefinition:
     validate_identifier(suite_name, "suite_name")
 
     suite_filename = suite_name
@@ -240,22 +298,21 @@ def load_corpus_suite(suite_name: str) -> list[dict[str, str]]:
         )
 
     try:
-        data: object = json.loads(suite_path.read_text(encoding="utf-8"))
+        raw_corpus = suite_path.read_bytes()
+        data: object = json.loads(raw_corpus)
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=500,
             detail=f"Invalid corpus JSON: {suite_name}",
         ) from exc
 
-    if isinstance(data, list):
-        tests: object = data
-    elif isinstance(data, dict):
-        tests = data.get("tests")
-    else:
+    if not isinstance(data, dict):
         raise HTTPException(
             status_code=500,
-            detail=f"Invalid corpus suite format: {suite_name}",
+            detail=f"Corpus suite must include versioned metadata: {suite_name}",
         )
+
+    tests: object = data.get("tests")
 
     if not isinstance(tests, list):
         raise HTTPException(
@@ -263,7 +320,20 @@ def load_corpus_suite(suite_name: str) -> list[dict[str, str]]:
             detail=f"Corpus suite has no tests list: {suite_name}",
         )
 
-    return [CorpusSecurityTest(**test).model_dump() for test in tests]
+    try:
+        return CorpusSuiteDefinition(
+            suite_name=str(data["suite_name"]),
+            version=str(data["version"]),
+            scoring_rule_version=str(data["scoring_rule_version"]),
+            description=str(data["description"]),
+            digest=hashlib.sha256(raw_corpus).hexdigest(),
+            tests=[CorpusSecurityTest.model_validate(test) for test in tests],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Invalid corpus suite metadata: {suite_name}",
+        ) from exc
 
 
 def severity_from_risk_status(risk_status: str) -> str:
@@ -827,6 +897,199 @@ def build_release_gate_response(
     )
 
 
+def campaign_records(
+    db: Session,
+    campaign_id: str,
+) -> list[SecurityTestResultRecord]:
+    validate_identifier(campaign_id, "campaign_id")
+    records = list(
+        db.scalars(
+            tenant_records_query(db)
+            .where(SecurityTestResultRecord.campaign_id == campaign_id)
+            .order_by(
+                SecurityTestResultRecord.created_at,
+                SecurityTestResultRecord.test_id,
+            )
+        ).all()
+    )
+    if not records:
+        raise HTTPException(status_code=404, detail="Campaign not found.")
+    return records
+
+
+def campaign_corpus_provenance(
+    records: list[SecurityTestResultRecord],
+) -> CorpusProvenance:
+    provenances = {
+        (
+            record.corpus_suite_name,
+            record.corpus_version,
+            record.corpus_digest,
+            record.scoring_rule_version,
+        )
+        for record in records
+    }
+    if len(provenances) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Campaign has incomplete or mixed corpus provenance and cannot "
+                "be used for a reproducible report or regression baseline."
+            ),
+        )
+    suite_name, version, digest, scoring_rule_version = next(iter(provenances))
+    if (
+        suite_name is None
+        or version is None
+        or digest is None
+        or scoring_rule_version is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Campaign has incomplete or mixed corpus provenance and cannot "
+                "be used for a reproducible report or regression baseline."
+            ),
+        )
+    return CorpusProvenance(
+        suite_name=suite_name,
+        version=version,
+        digest=digest,
+        scoring_rule_version=scoring_rule_version,
+    )
+
+
+def campaign_model(records: list[SecurityTestResultRecord]) -> str:
+    models = {record.model for record in records}
+    if len(models) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Campaign contains multiple models and cannot be release-gated.",
+        )
+    return next(iter(models))
+
+
+def campaign_evidence_fingerprint(records: list[SecurityTestResultRecord]) -> str:
+    evidence = [
+        {
+            "test_id": record.test_id,
+            "created_at": record.created_at.isoformat(),
+            "test_type": record.test_type,
+            "test_category": record.test_category,
+            "model": record.model,
+            "risk_status": record.risk_status,
+            "severity": record.severity,
+            "finding": record.finding,
+            "prompt_sent": record.prompt_sent,
+            "model_response": record.model_response,
+            "corpus_digest": record.corpus_digest,
+            "scoring_rule_version": record.scoring_rule_version,
+        }
+        for record in records
+    ]
+    canonical_evidence = json.dumps(
+        evidence,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical_evidence).hexdigest()
+
+
+def baseline_to_response(baseline: EvaluationBaseline) -> EvaluationBaselineResponse:
+    return EvaluationBaselineResponse(
+        name=baseline.name,
+        source_campaign_id=baseline.source_campaign_id,
+        model=baseline.model,
+        corpus=CorpusProvenance(
+            suite_name=baseline.corpus_suite_name,
+            version=baseline.corpus_version,
+            digest=baseline.corpus_digest,
+            scoring_rule_version=baseline.scoring_rule_version,
+        ),
+        total_tests=baseline.total_tests,
+        safety_score=baseline.safety_score,
+        leaked_tests=baseline.leaked_tests,
+        uncertain_tests=baseline.uncertain_tests,
+        high_risk_tests=baseline.high_risk_tests,
+        evidence_fingerprint=baseline.evidence_fingerprint,
+        created_at=baseline.created_at.isoformat(),
+    )
+
+
+def build_regression_gate_response(
+    *,
+    campaign_id: str,
+    baseline: EvaluationBaseline,
+    corpus: CorpusProvenance,
+    candidate_scorecard: ScorecardResponse,
+) -> RegressionGateResponse:
+    baseline_corpus = (
+        baseline.corpus_suite_name,
+        baseline.corpus_version,
+        baseline.corpus_digest,
+        baseline.scoring_rule_version,
+    )
+    candidate_corpus = (
+        corpus.suite_name,
+        corpus.version,
+        corpus.digest,
+        corpus.scoring_rule_version,
+    )
+    if candidate_corpus != baseline_corpus:
+        return RegressionGateResponse(
+            baseline_name=baseline.name,
+            baseline_model=baseline.model,
+            candidate_model=candidate_scorecard.model,
+            campaign_id=campaign_id,
+            corpus=corpus,
+            decision="manual_review_required",
+            reason="Candidate and baseline use different corpus or scoring versions.",
+            safety_score_delta=0,
+            leaked_test_delta=0,
+            uncertain_test_delta=0,
+            high_risk_test_delta=0,
+            required_actions=[
+                "Run the exact baseline corpus version before comparing models."
+            ],
+        )
+
+    safety_score_delta = candidate_scorecard.safety_score - baseline.safety_score
+    leaked_test_delta = candidate_scorecard.leaked - baseline.leaked_tests
+    uncertain_test_delta = candidate_scorecard.uncertain - baseline.uncertain_tests
+    high_risk_test_delta = (
+        candidate_scorecard.high_risk_tests - baseline.high_risk_tests
+    )
+    if leaked_test_delta > 0 or high_risk_test_delta > 0:
+        decision = "fail"
+        reason = "Candidate introduced new leaked or high-risk findings."
+        required_actions = ["Fix the regression and rerun the versioned corpus."]
+    elif safety_score_delta < 0 or uncertain_test_delta > 0:
+        decision = "manual_review_required"
+        reason = "Candidate safety score or certainty regressed from the baseline."
+        required_actions = ["Review changed findings before any release decision."]
+    else:
+        decision = "pass"
+        reason = "Candidate did not regress against the approved baseline."
+        required_actions = [
+            "No regression action required; retain human release review."
+        ]
+
+    return RegressionGateResponse(
+        baseline_name=baseline.name,
+        baseline_model=baseline.model,
+        candidate_model=candidate_scorecard.model,
+        campaign_id=campaign_id,
+        corpus=corpus,
+        decision=decision,
+        reason=reason,
+        safety_score_delta=safety_score_delta,
+        leaked_test_delta=leaked_test_delta,
+        uncertain_test_delta=uncertain_test_delta,
+        high_risk_test_delta=high_risk_test_delta,
+        required_actions=required_actions,
+    )
+
+
 def run_single_security_test(
     db: Session,
     model: str,
@@ -835,6 +1098,7 @@ def run_single_security_test(
     instruction: str,
     user_prompt: str,
     campaign_id: str | None = None,
+    corpus: CorpusProvenance | None = None,
 ) -> SecurityTestResultResponse:
     actor = request_actor(db)
     adapter = OllamaAdapter()
@@ -877,6 +1141,10 @@ def run_single_security_test(
         prompt_sent=protect_evidence(prompt_sent),
         model_response=protect_evidence(model_response),
         campaign_id=campaign_id,
+        corpus_suite_name=corpus.suite_name if corpus else None,
+        corpus_version=corpus.version if corpus else None,
+        corpus_digest=corpus.digest if corpus else None,
+        scoring_rule_version=corpus.scoring_rule_version if corpus else None,
         review_status="unreviewed",
         review_notes=None,
         reviewed_at=None,
@@ -902,6 +1170,7 @@ def build_basic_suite_response(
     *,
     campaign_id: str,
     model: str,
+    corpus: CorpusProvenance,
     results: list[SecurityTestResultResponse],
 ) -> BasicSuiteResponse:
     blocked = sum(1 for result in results if result.risk_status == "blocked")
@@ -911,6 +1180,10 @@ def build_basic_suite_response(
     return BasicSuiteResponse(
         suite_id=campaign_id,
         model=model,
+        corpus_suite_name=corpus.suite_name,
+        corpus_version=corpus.version,
+        corpus_digest=corpus.digest,
+        scoring_rule_version=corpus.scoring_rule_version,
         total_tests=len(results),
         blocked=blocked,
         uncertain=uncertain,
@@ -921,8 +1194,13 @@ def build_basic_suite_response(
 
 
 @router.get("/corpus/basic", response_model=list[CorpusSecurityTest])
-def get_basic_corpus() -> list[dict[str, str]]:
-    return load_corpus_suite("basic_safety_suite")
+def get_basic_corpus() -> list[CorpusSecurityTest]:
+    return load_corpus_suite("basic_safety_suite").tests
+
+
+@router.get("/corpus/{suite_name}", response_model=CorpusSuiteDefinition)
+def get_corpus_definition(suite_name: str) -> CorpusSuiteDefinition:
+    return load_corpus_suite(suite_name)
 
 
 @router.post(
@@ -1008,24 +1286,26 @@ def run_basic_suite(
             detail="Asynchronous campaigns are enabled. Use /suite/basic/jobs.",
         )
     campaign_id = f"campaign_{uuid4().hex[:12]}"
-    corpus_tests = load_corpus_suite(request.suite_name)
+    corpus = load_corpus_suite(request.suite_name)
 
     results = [
         run_single_security_test(
             db=db,
             model=request.model,
-            test_type=test["test_type"],
-            test_category=test["test_category"],
-            instruction=test["instruction"],
-            user_prompt=test["user_prompt"],
+            test_type=test.test_type,
+            test_category=test.test_category,
+            instruction=test.instruction,
+            user_prompt=test.user_prompt,
             campaign_id=campaign_id,
+            corpus=corpus,
         )
-        for test in corpus_tests
+        for test in corpus.tests
     ]
 
     return build_basic_suite_response(
         campaign_id=campaign_id,
         model=request.model,
+        corpus=corpus,
         results=results,
     )
 
@@ -1045,7 +1325,7 @@ def queue_basic_suite(
             status_code=409,
             detail="Asynchronous campaigns are disabled for this environment.",
         )
-    load_corpus_suite(request.suite_name)
+    corpus = load_corpus_suite(request.suite_name)
     actor = request_actor(db)
     campaign_id = f"campaign_{uuid4().hex[:12]}"
     try:
@@ -1054,6 +1334,7 @@ def queue_basic_suite(
                 "campaign_id": campaign_id,
                 "model": request.model,
                 "suite_name": request.suite_name,
+                "corpus_digest": corpus.digest,
                 "actor": {
                     "user_id": actor.user_id,
                     "organization_id": actor.organization_id,
@@ -1088,14 +1369,11 @@ def get_basic_suite_job(job_id: str, db: DBSession) -> CampaignJobResponse:
         ) from exc
     result = None
     if job.status == "finished":
-        records = db.scalars(
-            tenant_records_query(db)
-            .where(SecurityTestResultRecord.campaign_id == job.campaign_id)
-            .order_by(SecurityTestResultRecord.created_at)
-        ).all()
+        records = campaign_records(db, job.campaign_id)
         result = build_basic_suite_response(
             campaign_id=job.campaign_id,
             model=job.model,
+            corpus=campaign_corpus_provenance(records),
             results=[result_record_to_response(record) for record in records],
         )
     return CampaignJobResponse(
@@ -1103,6 +1381,140 @@ def get_basic_suite_job(job_id: str, db: DBSession) -> CampaignJobResponse:
         campaign_id=job.campaign_id,
         status=job.status,
         result=result,
+    )
+
+
+@router.get(
+    "/campaigns/{campaign_id}/report",
+    response_model=CampaignReportResponse,
+)
+def get_campaign_report(
+    campaign_id: str,
+    db: DBSession,
+) -> CampaignReportResponse:
+    records = campaign_records(db, campaign_id)
+    corpus = campaign_corpus_provenance(records)
+    model = campaign_model(records)
+    scorecard = build_scorecard(records, model=model)
+    return CampaignReportResponse(
+        campaign_id=campaign_id,
+        model=model,
+        corpus=corpus,
+        evidence_fingerprint=campaign_evidence_fingerprint(records),
+        scorecard=scorecard,
+        release_gate=build_release_gate_response(model=model, records=records),
+        category_breakdown=build_category_breakdown(records),
+        results=[result_record_to_response(record) for record in records],
+    )
+
+
+@router.post(
+    "/campaigns/{campaign_id}/baselines/{baseline_name}",
+    response_model=EvaluationBaselineResponse,
+    status_code=201,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
+def create_evaluation_baseline(
+    campaign_id: str,
+    baseline_name: str,
+    db: DBSession,
+) -> EvaluationBaselineResponse:
+    validate_identifier(baseline_name, "baseline_name")
+    records = campaign_records(db, campaign_id)
+    corpus = campaign_corpus_provenance(records)
+    model = campaign_model(records)
+    gate = build_release_gate_response(model=model, records=records)
+    if gate.decision != "pass":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only a fully reviewed passing campaign can become a regression "
+                "baseline."
+            ),
+        )
+
+    actor = request_actor(db)
+    normalized_name = baseline_name.lower()
+    existing = db.scalar(
+        select(EvaluationBaseline).where(
+            EvaluationBaseline.organization_id == actor.organization_id,
+            EvaluationBaseline.name == normalized_name,
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Baseline name already exists.")
+
+    scorecard = build_scorecard(records, model=model)
+    baseline = EvaluationBaseline(
+        organization_id=actor.organization_id,
+        created_by_user_id=actor.user_id,
+        name=normalized_name,
+        source_campaign_id=campaign_id,
+        model=model,
+        corpus_suite_name=corpus.suite_name,
+        corpus_version=corpus.version,
+        corpus_digest=corpus.digest,
+        scoring_rule_version=corpus.scoring_rule_version,
+        total_tests=scorecard.total_tests,
+        safety_score=scorecard.safety_score,
+        leaked_tests=scorecard.leaked,
+        uncertain_tests=scorecard.uncertain,
+        high_risk_tests=scorecard.high_risk_tests,
+        evidence_fingerprint=campaign_evidence_fingerprint(records),
+    )
+    db.add(baseline)
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="evaluation_baseline.create",
+        resource_type="evaluation_baseline",
+        resource_id=baseline.name,
+        details={"campaign_id": campaign_id, "model": model},
+    )
+    db.commit()
+    db.refresh(baseline)
+    return baseline_to_response(baseline)
+
+
+@router.get("/baselines", response_model=list[EvaluationBaselineResponse])
+def list_evaluation_baselines(db: DBSession) -> list[EvaluationBaselineResponse]:
+    actor = request_actor(db)
+    baselines = db.scalars(
+        select(EvaluationBaseline)
+        .where(EvaluationBaseline.organization_id == actor.organization_id)
+        .order_by(EvaluationBaseline.created_at.desc())
+    ).all()
+    return [baseline_to_response(baseline) for baseline in baselines]
+
+
+@router.get(
+    "/campaigns/{campaign_id}/regression",
+    response_model=RegressionGateResponse,
+)
+def get_campaign_regression_gate(
+    campaign_id: str,
+    db: DBSession,
+    baseline_name: str = Query(..., min_length=1, max_length=120),
+) -> RegressionGateResponse:
+    validate_identifier(baseline_name, "baseline_name")
+    records = campaign_records(db, campaign_id)
+    corpus = campaign_corpus_provenance(records)
+    actor = request_actor(db)
+    baseline = db.scalar(
+        select(EvaluationBaseline).where(
+            EvaluationBaseline.organization_id == actor.organization_id,
+            EvaluationBaseline.name == baseline_name.lower(),
+        )
+    )
+    if baseline is None:
+        raise HTTPException(status_code=404, detail="Evaluation baseline not found.")
+
+    return build_regression_gate_response(
+        campaign_id=campaign_id,
+        baseline=baseline,
+        corpus=corpus,
+        candidate_scorecard=build_scorecard(records, model=campaign_model(records)),
     )
 
 

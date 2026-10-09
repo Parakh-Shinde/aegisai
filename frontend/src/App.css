@@ -654,6 +654,13 @@ textarea:focus {
   padding: 18px 20px;
 }
 
+.empty-state {
+  margin: 0;
+  padding: 18px 20px;
+  color: #9fb0c7;
+  line-height: 1.55;
+}
+
 .risk-list article,
 .review-mini article {
   padding: 14px;

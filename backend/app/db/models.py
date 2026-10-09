@@ -140,6 +140,17 @@ class SecurityTestResultRecord(Base):
     prompt_sent: Mapped[str] = mapped_column(Text)
     model_response: Mapped[str] = mapped_column(Text)
     campaign_id: Mapped[str | None] = mapped_column(index=True, nullable=True)
+    corpus_suite_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    corpus_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    corpus_digest: Mapped[str | None] = mapped_column(
+        String(64),
+        index=True,
+        nullable=True,
+    )
+    scoring_rule_version: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
     review_status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
@@ -151,6 +162,46 @@ class SecurityTestResultRecord(Base):
     reviewed_by_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+    )
+
+
+class EvaluationBaseline(Base):
+    __tablename__ = "evaluation_baselines"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "name",
+            name="uq_evaluation_baselines_org_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_campaign_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    corpus_suite_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    corpus_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    corpus_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    scoring_rule_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    total_tests: Mapped[int] = mapped_column(Integer, nullable=False)
+    safety_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    leaked_tests: Mapped[int] = mapped_column(Integer, nullable=False)
+    uncertain_tests: Mapped[int] = mapped_column(Integer, nullable=False)
+    high_risk_tests: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
     )
 
 
