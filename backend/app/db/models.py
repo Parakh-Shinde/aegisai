@@ -111,6 +111,51 @@ class RegisteredModelRecord(Base):
     )
 
 
+class AISystemProfileRecord(Base):
+    __tablename__ = "ai_system_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "name",
+            name="uq_ai_system_profiles_org_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    system_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    deployment_exposure: Mapped[str] = mapped_column(String(24), nullable=False)
+    data_classification: Mapped[str] = mapped_column(String(24), nullable=False)
+    input_modalities: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    capabilities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    profile_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+
 class SecurityTestResultRecord(Base):
     __tablename__ = "security_test_results"
 

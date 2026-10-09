@@ -43,6 +43,37 @@ type ReviewerActivity = {
   total_actions: number;
 };
 
+type AISystemProfile = {
+  id: string;
+  name: string;
+  description: string | null;
+  system_type: "assistant" | "rag" | "agent" | "multimodal" | "model_api";
+  deployment_exposure: "internal" | "partner" | "public";
+  data_classification: "public" | "internal" | "confidential" | "regulated";
+  input_modalities: string[];
+  capabilities: string[];
+  profile_version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type CoveragePack = {
+  pack_id: string;
+  title: string;
+  category: string;
+  status: "available" | "planned";
+  reason: string;
+};
+
+type AISystemCoverage = {
+  system_id: string;
+  profile_version: number;
+  automated_test_coverage_percent: number;
+  available_packs: number;
+  planned_packs: number;
+  packs: CoveragePack[];
+};
+
 type SecurityResult = {
   test_id: string;
   created_at: string;
@@ -364,6 +395,16 @@ export default function App() {
   const [findingQueue, setFindingQueue] = useState<FindingQueue | null>(null);
   const [organizationReport, setOrganizationReport] = useState<OrganizationReport | null>(null);
   const [reviewerActivity, setReviewerActivity] = useState<ReviewerActivity[]>([]);
+  const [aiSystems, setAiSystems] = useState<AISystemProfile[]>([]);
+  const [selectedSystemId, setSelectedSystemId] = useState("");
+  const [systemCoverage, setSystemCoverage] = useState<AISystemCoverage | null>(null);
+  const [systemName, setSystemName] = useState("");
+  const [systemDescription, setSystemDescription] = useState("");
+  const [systemType, setSystemType] = useState<AISystemProfile["system_type"]>("assistant");
+  const [systemExposure, setSystemExposure] = useState<AISystemProfile["deployment_exposure"]>("internal");
+  const [dataClassification, setDataClassification] = useState<AISystemProfile["data_classification"]>("internal");
+  const [systemModalities, setSystemModalities] = useState<string[]>(["text"]);
+  const [systemCapabilities, setSystemCapabilities] = useState<string[]>([]);
   const [results, setResults] = useState<SecurityResult[]>([]);
   const [suite, setSuite] = useState<SuiteResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SecurityResult | null>(null);
@@ -432,6 +473,72 @@ export default function App() {
       setReviewerActivity(activityData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh dashboard");
+    }
+  }
+
+  async function loadSystemCoverage(systemId: string) {
+    if (!systemId) {
+      setSystemCoverage(null);
+      return;
+    }
+    try {
+      const coverage = await apiGet<AISystemCoverage>(`/ai-systems/${systemId}/coverage`);
+      setSelectedSystemId(systemId);
+      setSystemCoverage(coverage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load coverage plan");
+    }
+  }
+
+  function selectSystemType(nextType: AISystemProfile["system_type"]) {
+    setSystemType(nextType);
+    if (nextType === "rag" && !systemCapabilities.includes("rag")) {
+      setSystemCapabilities([...systemCapabilities, "rag"]);
+    }
+    if (nextType === "agent" && !systemCapabilities.includes("agent_tools")) {
+      setSystemCapabilities([...systemCapabilities, "agent_tools"]);
+    }
+    if (nextType === "multimodal" && systemModalities.length === 1 && systemModalities[0] === "text") {
+      setSystemModalities(["text", "image"]);
+    }
+  }
+
+  function toggleSystemValue(
+    value: string,
+    values: string[],
+    setValues: (nextValues: string[]) => void,
+    required = false,
+  ) {
+    if (values.includes(value)) {
+      if (required && values.length === 1) {
+        return;
+      }
+      setValues(values.filter((item) => item !== value));
+      return;
+    }
+    setValues([...values, value]);
+  }
+
+  async function createAISystem(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const created = await apiSend<AISystemProfile>("/ai-systems/", "POST", {
+        name: systemName,
+        description: systemDescription || null,
+        system_type: systemType,
+        deployment_exposure: systemExposure,
+        data_classification: dataClassification,
+        input_modalities: systemModalities,
+        capabilities: systemCapabilities,
+      });
+      setAiSystems((current) => [created, ...current]);
+      setSystemName("");
+      setSystemDescription("");
+      await loadSystemCoverage(created.id);
+      setMessage(`Attack-surface coverage created for ${created.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create AI system profile");
     }
   }
 
@@ -803,6 +910,19 @@ export default function App() {
     const startupTimer = window.setTimeout(() => {
       void refreshDashboard();
       void checkHealth();
+      void apiGet<AISystemProfile[]>("/ai-systems/")
+        .then((profiles) => {
+          setAiSystems(profiles);
+          if (!profiles[0]) {
+            return;
+          }
+          setSelectedSystemId(profiles[0].id);
+          return apiGet<AISystemCoverage>(`/ai-systems/${profiles[0].id}/coverage`)
+            .then(setSystemCoverage);
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Failed to load AI system profiles");
+        });
     }, 0);
 
     return () => window.clearTimeout(startupTimer);
@@ -826,6 +946,7 @@ export default function App() {
         <nav className="side-nav">
           <a href="#overview">Overview</a>
           <a href="#testing">Run Tests</a>
+          <a href="#ai-systems">AI Systems</a>
           <a href="#live">Live Testing</a>
           <a href="#review">Review</a>
           <a href="#findings">Findings</a>
@@ -944,6 +1065,141 @@ export default function App() {
             <span>Needs Review</span>
             <strong className="warn-text">{uncertainCount}</strong>
           </article>
+        </section>
+
+        <section className="panel" id="ai-systems">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Adaptive Coverage</p>
+              <h2>Map an AI System Before Testing It</h2>
+            </div>
+          </div>
+
+          <form className="system-profile-form" onSubmit={createAISystem}>
+            <div className="form-grid">
+              <label>
+                AI system name
+                <input
+                  value={systemName}
+                  onChange={(event) => setSystemName(event.target.value)}
+                  placeholder="Customer Support Assistant"
+                  required
+                />
+              </label>
+              <label>
+                System type
+                <select value={systemType} onChange={(event) => selectSystemType(event.target.value as AISystemProfile["system_type"])}>
+                  <option value="assistant">Chat assistant</option>
+                  <option value="rag">RAG application</option>
+                  <option value="agent">AI agent</option>
+                  <option value="multimodal">Multimodal AI</option>
+                  <option value="model_api">Model API</option>
+                </select>
+              </label>
+              <label>
+                Exposure
+                <select value={systemExposure} onChange={(event) => setSystemExposure(event.target.value as AISystemProfile["deployment_exposure"])}>
+                  <option value="internal">Internal</option>
+                  <option value="partner">Partner</option>
+                  <option value="public">Public</option>
+                </select>
+              </label>
+              <label>
+                Data classification
+                <select value={dataClassification} onChange={(event) => setDataClassification(event.target.value as AISystemProfile["data_classification"])}>
+                  <option value="public">Public</option>
+                  <option value="internal">Internal</option>
+                  <option value="confidential">Confidential</option>
+                  <option value="regulated">Regulated</option>
+                </select>
+              </label>
+              <label className="prompt-field">
+                What does this AI do?
+                <textarea
+                  value={systemDescription}
+                  onChange={(event) => setSystemDescription(event.target.value)}
+                  placeholder="Describe its users, data, tools, and intended purpose."
+                />
+              </label>
+            </div>
+
+            <div className="profile-options">
+              <fieldset>
+                <legend>Inputs accepted</legend>
+                {["text", "image", "document", "audio", "video"].map((value) => (
+                  <label className="check-option" key={value}>
+                    <input
+                      type="checkbox"
+                      checked={systemModalities.includes(value)}
+                      onChange={() => toggleSystemValue(value, systemModalities, setSystemModalities, true)}
+                    />
+                    {value}
+                  </label>
+                ))}
+              </fieldset>
+              <fieldset>
+                <legend>Capabilities enabled</legend>
+                {["rag", "agent_tools", "browser", "code_execution", "external_apis", "customer_data", "multi_tenant"].map((value) => (
+                  <label className="check-option" key={value}>
+                    <input
+                      type="checkbox"
+                      checked={systemCapabilities.includes(value)}
+                      onChange={() => toggleSystemValue(value, systemCapabilities, setSystemCapabilities)}
+                    />
+                    {value.replaceAll("_", " ")}
+                  </label>
+                ))}
+              </fieldset>
+            </div>
+            <div className="runner-actions">
+              <button className="run-button">Create Coverage Plan</button>
+            </div>
+          </form>
+
+          {aiSystems.length > 0 ? (
+            <div className="coverage-workspace">
+              <label>
+                Saved AI system
+                <select value={selectedSystemId} onChange={(event) => void loadSystemCoverage(event.target.value)}>
+                  {aiSystems.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name} · v{item.profile_version}</option>
+                  ))}
+                </select>
+              </label>
+              {systemCoverage ? (
+                <>
+                  <div className="review-mini coverage-summary">
+                    <article>
+                      <span>Automated coverage</span>
+                      <strong>{systemCoverage.automated_test_coverage_percent}%</strong>
+                    </article>
+                    <article>
+                      <span>Available now</span>
+                      <strong className="ok-text">{systemCoverage.available_packs}</strong>
+                    </article>
+                    <article>
+                      <span>Coverage gaps</span>
+                      <strong className="warn-text">{systemCoverage.planned_packs}</strong>
+                    </article>
+                  </div>
+                  <div className="coverage-pack-list">
+                    {systemCoverage.packs.map((pack) => (
+                      <article className="coverage-pack" key={pack.pack_id}>
+                        <div>
+                          <span className={`badge coverage-${pack.status}`}>{pack.status}</span>
+                          <h3>{pack.title}</h3>
+                          <p>{pack.reason}</p>
+                        </div>
+                        <span className="coverage-category">{pack.category.replaceAll("_", " ")}</span>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : (
+            <p className="empty-state">Create an AI system profile to see its security test coverage and gaps.</p>
+          )}
         </section>
 
         <section className="dashboard-grid">
