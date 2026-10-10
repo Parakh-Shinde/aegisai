@@ -34,6 +34,30 @@ def test_ai_security_baseline_is_versioned_and_has_coverage_context() -> None:
     )
 
 
+def test_openai_compatible_target_config_uses_approved_endpoint() -> None:
+    config = build_promptfoo_config(
+        "my-assistant",
+        PROMPTFOO_AI_SECURITY_BASELINE_SUITE_NAME,
+        provider="openai_compatible",
+        endpoint="https://staging.example.com/v1",
+    )
+
+    assert config["providers"] == [
+        {
+            "id": "openai:chat:my-assistant",
+            "config": {"apiBaseUrl": "https://staging.example.com/v1"},
+        }
+    ]
+
+
+def test_openai_compatible_target_requires_endpoint() -> None:
+    with pytest.raises(ValueError, match="require an endpoint"):
+        build_promptfoo_config(
+            "my-assistant",
+            provider="openai_compatible",
+        )
+
+
 def test_promptfoo_report_parser_normalizes_evidence() -> None:
     report = {
         "results": {
@@ -71,7 +95,7 @@ def test_promptfoo_target_reuses_model_endpoint_allowlist(
 ) -> None:
     monkeypatch.delenv("AEGISAI_ALLOW_REMOTE_OLLAMA", raising=False)
 
-    with pytest.raises(ValueError, match="remote model endpoints"):
+    with pytest.raises(ValueError, match="remote endpoints"):
         ToolTargetRequest(
             system_id="system-1",
             name="not-authorized",
@@ -79,3 +103,38 @@ def test_promptfoo_target_reuses_model_endpoint_allowlist(
             model_name="example-model",
             authorization_confirmed=True,
         )
+
+
+def test_live_application_target_requires_exact_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AEGISAI_LOCAL_APPLICATION_ENDPOINTS", raising=False)
+    monkeypatch.delenv("AEGISAI_ALLOW_REMOTE_APPLICATION_TARGETS", raising=False)
+
+    with pytest.raises(ValueError, match="remote endpoints"):
+        ToolTargetRequest(
+            system_id="system-1",
+            name="not-authorized-live-app",
+            provider="openai_compatible",
+            endpoint="https://staging.example.com/v1",
+            model_name="my-assistant",
+            authorization_confirmed=True,
+        )
+
+
+def test_live_application_target_accepts_exact_local_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    endpoint = "http://host.docker.internal:9000/v1"
+    monkeypatch.setenv("AEGISAI_LOCAL_APPLICATION_ENDPOINTS", endpoint)
+
+    target = ToolTargetRequest(
+        system_id="system-1",
+        name="approved-live-app",
+        provider="openai_compatible",
+        endpoint=endpoint,
+        model_name="my-assistant",
+        authorization_confirmed=True,
+    )
+
+    assert target.endpoint == endpoint

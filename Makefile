@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup start stop restart logs status doctor config-check migrate backup verify-backup restore encrypt-evidence agent-gateway-demo model-agent-eval promptfoo-run test lint build release-gate clean
+.PHONY: help setup start stop restart logs status doctor config-check migrate backup verify-backup restore encrypt-evidence agent-gateway-demo model-agent-eval promptfoo-run live-app-run test lint build release-gate clean
 
 help:
 	@echo "AEGISAI local security lab"
@@ -19,6 +19,7 @@ help:
 	@echo "  make agent-gateway-demo SYSTEM_ID=id  Test the agent runtime integration client"
 	@echo "  make model-agent-eval SYSTEM_ID=id TARGET_ID=id  Evaluate real model proposals through the gateway"
 	@echo "  make promptfoo-run RUN_ID=id  Run an approved Promptfoo job in the isolated runner"
+	@echo "  make live-app-run RUN_ID=id  Run an approved OpenAI-compatible application test"
 	@echo "  make test     Run backend tests in Docker"
 	@echo "  make lint     Run backend lint and frontend lint in Docker"
 	@echo "  make release-gate  Validate the locked evaluation release policy"
@@ -81,6 +82,8 @@ promptfoo-run:
 	@test -n "$(RUN_ID)" || (echo "Set RUN_ID to a pending Promptfoo evaluation run ID" >&2; exit 2)
 	docker compose --profile tools build promptfoo-runner
 	docker compose --profile tools run --rm -e RUN_ID="$(RUN_ID)" promptfoo-runner
+
+live-app-run: promptfoo-run
 
 test:
 	docker compose run --rm --no-deps api pytest /app/tests

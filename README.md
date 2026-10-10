@@ -61,6 +61,10 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > denominators, and reproducible runtime-evaluation reports. See
 > [Measurable Assessment Framework](docs/measurable-assessment-framework.md).
 
+> **Live application testing:** test an authorized OpenAI-compatible staging
+> application through an allowlisted, isolated runner with environment-only
+> credentials. See [Live AI Application Testing](docs/live-application-testing.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**

@@ -79,6 +79,48 @@ def validate_identifier(value: str, field_name: str) -> str:
 
 
 def validate_local_http_url(url: str, field_name: str = "url") -> str:
+    """Validate an approved Ollama endpoint.
+
+    Local targets are allowed only when they are a loopback host or are listed
+    exactly in ``AEGISAI_LOCAL_MODEL_ENDPOINTS``. Remote targets require both
+    an explicit flag and an exact public-endpoint allowlist entry.
+    """
+    return _validate_approved_http_url(
+        url,
+        field_name=field_name,
+        local_endpoints_env="AEGISAI_LOCAL_MODEL_ENDPOINTS",
+        remote_enabled_env="AEGISAI_ALLOW_REMOTE_OLLAMA",
+        approved_endpoints_env="AEGISAI_APPROVED_MODEL_ENDPOINTS",
+        allow_loopback=True,
+    )
+
+
+def validate_approved_application_url(url: str, field_name: str = "endpoint") -> str:
+    """Validate a live application endpoint before an external runner uses it.
+
+    This avoids turning AEGISAI into an SSRF proxy: every target must be an
+    exact value from a local or remote application allowlist. Credentials are
+    injected only into the isolated runner through its environment.
+    """
+    return _validate_approved_http_url(
+        url,
+        field_name=field_name,
+        local_endpoints_env="AEGISAI_LOCAL_APPLICATION_ENDPOINTS",
+        remote_enabled_env="AEGISAI_ALLOW_REMOTE_APPLICATION_TARGETS",
+        approved_endpoints_env="AEGISAI_APPROVED_APPLICATION_ENDPOINTS",
+        allow_loopback=False,
+    )
+
+
+def _validate_approved_http_url(
+    url: str,
+    *,
+    field_name: str,
+    local_endpoints_env: str,
+    remote_enabled_env: str,
+    approved_endpoints_env: str,
+    allow_loopback: bool,
+) -> str:
     parsed = urlparse(url)
 
     if (
@@ -96,17 +138,19 @@ def validate_local_http_url(url: str, field_name: str = "url") -> str:
     local_hosts = {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
     local_endpoints = {
         item.strip().rstrip("/")
-        for item in os.getenv("AEGISAI_LOCAL_MODEL_ENDPOINTS", "").split(",")
+        for item in os.getenv(local_endpoints_env, "").split(",")
         if item.strip()
     }
 
-    if hostname in local_hosts or normalized_url in local_endpoints:
+    if normalized_url in local_endpoints:
+        return normalized_url
+    if allow_loopback and hostname in local_hosts:
         return normalized_url
 
-    if os.getenv("AEGISAI_ALLOW_REMOTE_OLLAMA") == "true":
+    if os.getenv(remote_enabled_env) == "true":
         approved_endpoints = {
             item.strip().rstrip("/")
-            for item in os.getenv("AEGISAI_APPROVED_MODEL_ENDPOINTS", "").split(",")
+            for item in os.getenv(approved_endpoints_env, "").split(",")
             if item.strip()
         }
         if normalized_url in approved_endpoints:
@@ -117,7 +161,7 @@ def validate_local_http_url(url: str, field_name: str = "url") -> str:
         )
 
     raise ValueError(
-        f"Invalid {field_name}: remote model endpoints are disabled by default."
+        f"Invalid {field_name}: remote endpoints are disabled by default."
     )
 
 

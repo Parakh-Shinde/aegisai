@@ -53,6 +53,28 @@ try {
   const reportPath = '/tmp/promptfoo-report.json';
   writeFileSync(configPath, JSON.stringify(claim.config, null, 2));
 
+  const runnerEnv = {
+    ...process.env,
+    PROMPTFOO_DISABLE_TELEMETRY: 'true',
+    PROMPTFOO_DISABLE_UPDATE_CHECK: 'true',
+  };
+  if (claim.provider === 'ollama') {
+    runnerEnv.OLLAMA_BASE_URL = claim.endpoint;
+  } else if (claim.provider === 'openai_compatible') {
+    const credentialName = claim.credential_environment_variable;
+    const apiKey = credentialName ? process.env[credentialName] : undefined;
+    if (!apiKey) {
+      throw new Error(
+        `The approved live target requires ${credentialName || 'an API key'} in the runner environment.`,
+      );
+    }
+    // Promptfoo's OpenAI provider reads this standard variable. It is never
+    // sent back to the AEGISAI API, persisted, or written to the report.
+    runnerEnv.OPENAI_API_KEY = apiKey;
+  } else {
+    throw new Error('Runner received an unsupported approved target provider.');
+  }
+
   const result = spawnSync(
     'promptfoo',
     [
@@ -66,12 +88,7 @@ try {
     {
       encoding: 'utf8',
       timeout: Number.parseInt(process.env.AEGISAI_TOOL_RUNNER_TIMEOUT_MS || '180000', 10),
-      env: {
-        ...process.env,
-        OLLAMA_BASE_URL: claim.ollama_base_url,
-        PROMPTFOO_DISABLE_TELEMETRY: 'true',
-        PROMPTFOO_DISABLE_UPDATE_CHECK: 'true',
-      },
+      env: runnerEnv,
     },
   );
 

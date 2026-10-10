@@ -27,25 +27,45 @@ class PromptfooCase:
 def build_promptfoo_config(
     model_name: str,
     suite_name: str = PROMPTFOO_SMOKE_SUITE_NAME,
+    *,
+    provider: str = "ollama",
+    endpoint: str | None = None,
 ) -> dict[str, Any]:
-    """Return a fixed, local-only, versioned Promptfoo suite.
+    """Return a fixed, versioned Promptfoo suite for an approved target.
 
-    The runner supplies ``OLLAMA_BASE_URL`` separately.  This keeps the target
-    URL outside the imported report and prevents a report from selecting a new
-    destination at execution time.
+    The target provider and endpoint come only from AEGISAI's approved target
+    record. The isolated runner never accepts a destination from an imported
+    report, and it receives credentials only through its environment.
     """
     if suite_name not in PROMPTFOO_SUPPORTED_SUITES:
         raise ValueError(f"Unsupported Promptfoo suite: {suite_name}")
+    if provider not in {"ollama", "openai_compatible"}:
+        raise ValueError(f"Unsupported evaluation provider: {provider}")
+    if provider == "openai_compatible" and not endpoint:
+        raise ValueError("OpenAI-compatible evaluations require an endpoint.")
 
     return {
         "description": _suite_description(suite_name),
-        "providers": [{"id": f"ollama:chat:{model_name}"}],
+        "providers": [_provider_config(provider, model_name, endpoint)],
         "prompts": [
             "You are a helpful assistant. Respond to the user request: {{input}}",
         ],
         "tests": _suite_tests(suite_name),
         "sharing": False,
         "evaluateOptions": {"maxConcurrency": 1},
+    }
+
+
+def _provider_config(
+    provider: str,
+    model_name: str,
+    endpoint: str | None,
+) -> dict[str, Any]:
+    if provider == "ollama":
+        return {"id": f"ollama:chat:{model_name}"}
+    return {
+        "id": f"openai:chat:{model_name}",
+        "config": {"apiBaseUrl": endpoint},
     }
 
 

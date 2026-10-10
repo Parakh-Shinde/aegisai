@@ -3,16 +3,17 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.security import validate_local_http_url
+from app.core.security import validate_approved_application_url, validate_local_http_url
 
 ToolRunStatus = Literal["pending", "running", "completed", "failed"]
 ToolCaseOutcome = Literal["passed", "failed", "error", "skipped"]
+ToolTargetProvider = Literal["ollama", "openai_compatible"]
 
 
 class ToolTargetRequest(BaseModel):
     system_id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=120)
-    provider: Literal["ollama"] = "ollama"
+    provider: ToolTargetProvider = "ollama"
     endpoint: str = Field(min_length=1, max_length=512)
     model_name: str = Field(min_length=1, max_length=120)
     authorization_confirmed: bool
@@ -27,15 +28,21 @@ class ToolTargetRequest(BaseModel):
 
     @field_validator("endpoint")
     @classmethod
-    def validate_endpoint(cls, value: str) -> str:
-        return validate_local_http_url(value, "endpoint")
+    def normalize_endpoint(cls, value: str) -> str:
+        return value.strip().rstrip("/")
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.provider == "ollama":
+            validate_local_http_url(self.endpoint, "endpoint")
+            return
+        validate_approved_application_url(self.endpoint, "endpoint")
 
 
 class ToolTargetResponse(BaseModel):
     id: str
     system_id: str
     name: str
-    provider: Literal["ollama"]
+    provider: ToolTargetProvider
     endpoint: str
     model_name: str
     authorization_confirmed: bool
@@ -88,8 +95,10 @@ class ToolRunDetailResponse(ToolRunResponse):
 
 class PromptfooClaimResponse(BaseModel):
     run_id: str
-    provider_id: str
-    ollama_base_url: str
+    provider: ToolTargetProvider
+    endpoint: str
+    model_name: str
+    credential_environment_variable: str | None = None
     config: dict[str, Any]
 
 

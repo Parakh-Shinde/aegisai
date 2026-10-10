@@ -31,6 +31,7 @@ from app.models.tool_evaluations import (
     ToolRunRequest,
     ToolRunResponse,
     ToolRunStatus,
+    ToolTargetProvider,
     ToolTargetRequest,
     ToolTargetResponse,
 )
@@ -76,7 +77,7 @@ def _target_response(target: ToolEvaluationTargetRecord) -> ToolTargetResponse:
         id=target.id,
         system_id=target.system_id,
         name=target.name,
-        provider=cast(Literal["ollama"], target.provider),
+        provider=cast(ToolTargetProvider, target.provider),
         endpoint=target.endpoint,
         model_name=target.model_name,
         authorization_confirmed=target.authorization_confirmed,
@@ -196,7 +197,12 @@ def create_promptfoo_run(request: ToolRunRequest, db: DBSession) -> ToolRunRespo
     if request.suite_name not in PROMPTFOO_SUPPORTED_SUITES:
         raise HTTPException(status_code=400, detail="Unsupported Promptfoo suite.")
 
-    config = build_promptfoo_config(target.model_name, request.suite_name)
+    config = build_promptfoo_config(
+        target.model_name,
+        request.suite_name,
+        provider=target.provider,
+        endpoint=target.endpoint,
+    )
     run = ToolEvaluationRunRecord(
         organization_id=actor.organization_id,
         system_id=target.system_id,
@@ -302,7 +308,12 @@ def claim_promptfoo_run(run_id: str, db: DBSession) -> PromptfooClaimResponse:
         raise HTTPException(
             status_code=409, detail="Tool evaluation target is not active."
         )
-    config = build_promptfoo_config(target.model_name, run.suite_name)
+    config = build_promptfoo_config(
+        target.model_name,
+        run.suite_name,
+        provider=target.provider,
+        endpoint=target.endpoint,
+    )
     if config_digest(config) != run.config_digest:
         raise HTTPException(
             status_code=409, detail="Run configuration integrity check failed."
@@ -312,8 +323,14 @@ def claim_promptfoo_run(run_id: str, db: DBSession) -> PromptfooClaimResponse:
     db.commit()
     return PromptfooClaimResponse(
         run_id=run.id,
-        provider_id=f"ollama:chat:{target.model_name}",
-        ollama_base_url=target.endpoint,
+        provider=cast(ToolTargetProvider, target.provider),
+        endpoint=target.endpoint,
+        model_name=target.model_name,
+        credential_environment_variable=(
+            "AEGISAI_TARGET_API_KEY"
+            if target.provider == "openai_compatible"
+            else None
+        ),
         config=config,
     )
 
