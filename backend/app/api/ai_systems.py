@@ -1,20 +1,37 @@
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
+from app.api.security_tests import build_release_gate_response
 from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.database import get_db
 from app.core.security import require_api_key
-from app.db.models import AISystemProfileRecord, UserRole
+from app.db.models import (
+    AgentActionRecord,
+    AgentRuntimeAssessmentRecord,
+    AISystemProfileRecord,
+    FileSecurityScanRecord,
+    RAGSourceRecord,
+    SecurityTestResultRecord,
+    ToolEvaluationRunRecord,
+    ToolEvaluationTargetRecord,
+    UserRole,
+)
 from app.models.ai_system import (
     AISystemCoverageResponse,
     AISystemProfileRequest,
     AISystemProfileResponse,
+    AISystemReleaseDecisionResponse,
     CoveragePackResponse,
     DataClassification,
     DeploymentExposure,
+    EvidenceStatus,
+    SystemReleaseDecision,
+    SystemReleaseEvidenceResponse,
     SystemType,
 )
 from app.services.audit import write_audit_log
@@ -57,6 +74,34 @@ def get_tenant_profile(db: Session, system_id: str) -> AISystemProfileRecord:
     if record is None:
         raise HTTPException(status_code=404, detail="AI system profile not found.")
     return record
+
+
+def _evidence(
+    source: str,
+    status_value: EvidenceStatus,
+    summary: str,
+    records: Sequence[object],
+) -> SystemReleaseEvidenceResponse:
+    return SystemReleaseEvidenceResponse(
+        source=source,
+        status=status_value,
+        summary=summary,
+        evidence_count=len(records),
+        evidence_ids=[
+            str(getattr(record, "id", getattr(record, "test_id", "unknown")))
+            for record in records[:5]
+        ],
+    )
+
+
+def _decision_from_evidence(
+    evidence: list[SystemReleaseEvidenceResponse],
+) -> SystemReleaseDecision:
+    if any(item.status == "fail" for item in evidence):
+        return "fail"
+    if any(item.status == "manual_review_required" for item in evidence):
+        return "manual_review_required"
+    return "pass"
 
 
 @router.post(
@@ -202,4 +247,310 @@ def get_ai_system_coverage(
             )
             for pack in plan.packs
         ],
+    )
+
+
+@router.get(
+    "/{system_id}/release-decision",
+    response_model=AISystemReleaseDecisionResponse,
+)
+def get_ai_system_release_decision(
+    system_id: str,
+    db: DBSession,
+) -> AISystemReleaseDecisionResponse:
+    """Aggregate only evidence linked to one tenant-owned AI system.
+
+    A missing assessment is deliberately reported as manual review rather than a
+    passing result. This endpoint is a decision aid and does not execute tests
+    or change any evidence.
+    """
+    system = get_tenant_profile(db, system_id)
+    actor = request_actor(db)
+    evidence: list[SystemReleaseEvidenceResponse] = []
+    limitations: list[str] = []
+
+    targets = list(
+        db.scalars(
+            select(ToolEvaluationTargetRecord)
+            .where(
+                ToolEvaluationTargetRecord.organization_id == actor.organization_id,
+                ToolEvaluationTargetRecord.system_id == system.id,
+                ToolEvaluationTargetRecord.active.is_(True),
+                ToolEvaluationTargetRecord.authorization_confirmed.is_(True),
+            )
+            .order_by(ToolEvaluationTargetRecord.created_at.desc())
+        ).all()
+    )
+    model_names = {target.model_name for target in targets}
+    if not targets:
+        evidence.append(
+            _evidence(
+                "model_target",
+                "manual_review_required",
+                "No approved model target is linked to this AI system.",
+                [],
+            )
+        )
+    else:
+        evidence.append(
+            _evidence(
+                "model_target",
+                "pass",
+                f"{len(targets)} approved model target(s) are linked to this system.",
+                targets,
+            )
+        )
+
+    campaign_records = list(
+        db.scalars(
+            select(SecurityTestResultRecord)
+            .where(
+                SecurityTestResultRecord.organization_id == actor.organization_id,
+                SecurityTestResultRecord.model.in_(model_names),
+            )
+            .order_by(SecurityTestResultRecord.created_at.desc())
+        ).all()
+    ) if model_names else []
+    if not campaign_records:
+        evidence.append(
+            _evidence(
+                "security_campaigns",
+                "manual_review_required",
+                "No security campaign evidence is available for a linked model.",
+                [],
+            )
+        )
+    else:
+        campaign_statuses = [
+            build_release_gate_response(model=model, records=[
+                record for record in campaign_records if record.model == model
+            ]).decision
+            for model in sorted(model_names)
+            if any(record.model == model for record in campaign_records)
+        ]
+        campaign_decision = (
+            "fail"
+            if "fail" in campaign_statuses
+            else "manual_review_required"
+            if "manual_review_required" in campaign_statuses
+            else "pass"
+        )
+        evidence.append(
+            _evidence(
+                "security_campaigns",
+                cast(EvidenceStatus, campaign_decision),
+                "Release gates were evaluated using evidence from linked "
+                "model targets.",
+                campaign_records,
+            )
+        )
+
+    tool_runs = list(
+        db.scalars(
+            select(ToolEvaluationRunRecord)
+            .where(
+                ToolEvaluationRunRecord.organization_id == actor.organization_id,
+                ToolEvaluationRunRecord.system_id == system.id,
+            )
+            .order_by(
+                ToolEvaluationRunRecord.completed_at.desc(),
+                ToolEvaluationRunRecord.created_at.desc(),
+            )
+        ).all()
+    )
+    completed_tool_runs = [run for run in tool_runs if run.status == "completed"]
+    if not completed_tool_runs:
+        evidence.append(
+            _evidence(
+                "external_tool_evaluation",
+                "manual_review_required",
+                "No completed authorized external-tool evaluation is linked "
+                "to this system.",
+                tool_runs,
+            )
+        )
+    else:
+        latest_tool_run = completed_tool_runs[0]
+        tool_status: EvidenceStatus = (
+            "pass" if latest_tool_run.failed_tests == 0 else "manual_review_required"
+        )
+        evidence.append(
+            _evidence(
+                "external_tool_evaluation",
+                tool_status,
+                (
+                    f"Latest {latest_tool_run.tool_name} run completed with "
+                    f"{latest_tool_run.failed_tests} failed test(s)."
+                ),
+                [latest_tool_run],
+            )
+        )
+
+    file_inputs = {"image", "document", "audio", "video"}
+    if set(system.input_modalities) & file_inputs:
+        scans = list(
+            db.scalars(
+                select(FileSecurityScanRecord)
+                .where(
+                    FileSecurityScanRecord.organization_id == actor.organization_id,
+                    FileSecurityScanRecord.system_id == system.id,
+                )
+                .order_by(FileSecurityScanRecord.created_at.desc())
+            ).all()
+        )
+        risky_scans = [scan for scan in scans if scan.verdict != "allowed"]
+        scan_status: EvidenceStatus = (
+            "manual_review_required"
+            if not scans or risky_scans
+            else "pass"
+        )
+        scan_summary = (
+            "No file-security scan is linked to this file-capable system."
+            if not scans
+            else (
+                f"{len(risky_scans)} of {len(scans)} linked file scan(s) "
+                "require attention."
+            )
+        )
+        evidence.append(_evidence("file_security", scan_status, scan_summary, scans))
+    else:
+        evidence.append(
+            _evidence(
+                "file_security",
+                "not_applicable",
+                "This system profile does not accept file-based inputs.",
+                [],
+            )
+        )
+
+    if "rag" in system.capabilities:
+        sources = list(
+            db.scalars(
+                select(RAGSourceRecord)
+                .where(
+                    RAGSourceRecord.organization_id == actor.organization_id,
+                    RAGSourceRecord.system_id == system.id,
+                )
+                .order_by(RAGSourceRecord.created_at.desc())
+            ).all()
+        )
+        pending_sources = [
+            source for source in sources if source.review_state == "pending_review"
+        ]
+        rag_status: EvidenceStatus = (
+            "manual_review_required"
+            if not sources or pending_sources
+            else "pass"
+        )
+        rag_summary = (
+            "No RAG source inspection is linked to this RAG-enabled system."
+            if not sources
+            else f"{len(pending_sources)} RAG source(s) remain pending review."
+        )
+        evidence.append(_evidence("rag_security", rag_status, rag_summary, sources))
+    else:
+        evidence.append(
+            _evidence(
+                "rag_security",
+                "not_applicable",
+                "This system profile does not declare RAG capability.",
+                [],
+            )
+        )
+
+    if "agent_tools" in system.capabilities:
+        assessments = list(
+            db.scalars(
+                select(AgentRuntimeAssessmentRecord)
+                .where(
+                    AgentRuntimeAssessmentRecord.organization_id
+                    == actor.organization_id,
+                    AgentRuntimeAssessmentRecord.system_id == system.id,
+                )
+                .order_by(AgentRuntimeAssessmentRecord.completed_at.desc())
+            ).all()
+        )
+        if not assessments:
+            evidence.append(
+                _evidence(
+                    "agent_runtime",
+                    "manual_review_required",
+                    "No agent runtime evaluation is linked to this "
+                    "tool-enabled system.",
+                    [],
+                )
+            )
+        else:
+            latest_assessment = assessments[0]
+            assessment_actions = list(
+                db.scalars(
+                    select(AgentActionRecord).where(
+                        AgentActionRecord.organization_id == actor.organization_id,
+                        AgentActionRecord.evaluation_run_id == latest_assessment.id,
+                    )
+                ).all()
+            )
+            failed_cases = [
+                action
+                for action in assessment_actions
+                if action.evaluation_expected_verdict != action.verdict
+            ]
+            agent_status: EvidenceStatus = (
+                "manual_review_required"
+                if len(assessment_actions) != latest_assessment.planned_tests
+                or failed_cases
+                else "pass"
+            )
+            evidence.append(
+                _evidence(
+                    "agent_runtime",
+                    agent_status,
+                    (
+                        f"Latest agent runtime evaluation contains {len(failed_cases)} "
+                        f"failed case(s) across {len(assessment_actions)} "
+                        "recorded action(s)."
+                    ),
+                    [latest_assessment],
+                )
+            )
+    else:
+        evidence.append(
+            _evidence(
+                "agent_runtime",
+                "not_applicable",
+                "This system profile does not declare agent tool capability.",
+                [],
+            )
+        )
+
+    coverage = build_coverage_plan(
+        input_modalities=set(system.input_modalities),
+        capabilities=set(system.capabilities),
+        deployment_exposure=system.deployment_exposure,
+        data_classification=system.data_classification,
+    )
+    if coverage.planned_packs:
+        limitations.append(
+            f"{coverage.planned_packs} applicable coverage pack(s) are not "
+            "automated yet."
+        )
+    limitations.append(
+        "The decision applies only to evidence linked to this system profile version."
+    )
+    decision = _decision_from_evidence(evidence)
+    reason = (
+        "All applicable linked evidence currently passes."
+        if decision == "pass"
+        else "One or more required evidence sources need analyst review."
+        if decision == "manual_review_required"
+        else "One or more linked evidence sources failed the release decision."
+    )
+    return AISystemReleaseDecisionResponse(
+        system_id=system.id,
+        profile_version=system.profile_version,
+        decision=decision,
+        reason=reason,
+        generated_at=datetime.now(UTC),
+        evidence=evidence,
+        coverage_limitations=limitations,
     )

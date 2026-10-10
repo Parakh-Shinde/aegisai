@@ -91,3 +91,25 @@ class AISystemCoverageResponse(BaseModel):
     partial_packs: int
     planned_packs: int
     packs: list[CoveragePackResponse]
+
+
+SystemReleaseDecision = Literal["pass", "manual_review_required", "fail"]
+EvidenceStatus = Literal["pass", "manual_review_required", "fail", "not_applicable"]
+
+
+class SystemReleaseEvidenceResponse(BaseModel):
+    source: str
+    status: EvidenceStatus
+    summary: str
+    evidence_count: int = Field(ge=0)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class AISystemReleaseDecisionResponse(BaseModel):
+    system_id: str
+    profile_version: int
+    decision: SystemReleaseDecision
+    reason: str
+    generated_at: datetime
+    evidence: list[SystemReleaseEvidenceResponse]
+    coverage_limitations: list[str]

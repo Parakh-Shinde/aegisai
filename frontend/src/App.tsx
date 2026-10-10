@@ -75,6 +75,24 @@ type AISystemCoverage = {
   packs: CoveragePack[];
 };
 
+type SystemReleaseEvidence = {
+  source: string;
+  status: "pass" | "manual_review_required" | "fail" | "not_applicable";
+  summary: string;
+  evidence_count: number;
+  evidence_ids: string[];
+};
+
+type AISystemReleaseDecision = {
+  system_id: string;
+  profile_version: number;
+  decision: "pass" | "manual_review_required" | "fail";
+  reason: string;
+  generated_at: string;
+  evidence: SystemReleaseEvidence[];
+  coverage_limitations: string[];
+};
+
 type FileSecuritySignal = {
   code: string;
   severity: "low" | "medium" | "high";
@@ -531,6 +549,8 @@ export default function App() {
   const [aiSystems, setAiSystems] = useState<AISystemProfile[]>([]);
   const [selectedSystemId, setSelectedSystemId] = useState("");
   const [systemCoverage, setSystemCoverage] = useState<AISystemCoverage | null>(null);
+  const [systemReleaseDecision, setSystemReleaseDecision] =
+    useState<AISystemReleaseDecision | null>(null);
   const [systemName, setSystemName] = useState("");
   const [systemDescription, setSystemDescription] = useState("");
   const [systemType, setSystemType] = useState<AISystemProfile["system_type"]>("assistant");
@@ -628,12 +648,17 @@ export default function App() {
   async function loadSystemCoverage(systemId: string) {
     if (!systemId) {
       setSystemCoverage(null);
+      setSystemReleaseDecision(null);
       return;
     }
     try {
-      const coverage = await apiGet<AISystemCoverage>(`/ai-systems/${systemId}/coverage`);
+      const [coverage, decision] = await Promise.all([
+        apiGet<AISystemCoverage>(`/ai-systems/${systemId}/coverage`),
+        apiGet<AISystemReleaseDecision>(`/ai-systems/${systemId}/release-decision`),
+      ]);
       setSelectedSystemId(systemId);
       setSystemCoverage(coverage);
+      setSystemReleaseDecision(decision);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load coverage plan");
     }
@@ -1220,8 +1245,7 @@ export default function App() {
             return;
           }
           setSelectedSystemId(profiles[0].id);
-          return apiGet<AISystemCoverage>(`/ai-systems/${profiles[0].id}/coverage`)
-            .then(setSystemCoverage);
+          return loadSystemCoverage(profiles[0].id);
         })
         .catch((err: unknown) => {
           setError(err instanceof Error ? err.message : "Failed to load AI system profiles");
@@ -1519,6 +1543,34 @@ export default function App() {
                       </article>
                     ))}
                   </div>
+                  {systemReleaseDecision ? (
+                    <article className="release-card">
+                      <span>Unified system release decision</span>
+                      <strong className={`decision-${systemReleaseDecision.decision}`}>
+                        {systemReleaseDecision.decision.replaceAll("_", " ")}
+                      </strong>
+                      <p>{systemReleaseDecision.reason}</p>
+                      <div className="coverage-pack-list">
+                        {systemReleaseDecision.evidence.map((item) => (
+                          <div className="coverage-pack" key={item.source}>
+                            <div>
+                              <span className={`badge decision-${item.status}`}>
+                                {item.status.replaceAll("_", " ")}
+                              </span>
+                              <h3>{item.source.replaceAll("_", " ")}</h3>
+                              <p>{item.summary}</p>
+                            </div>
+                            <span className="coverage-category">
+                              {item.evidence_count} evidence item(s)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {systemReleaseDecision.coverage_limitations.map((item) => (
+                        <p key={item}>Limitation: {item}</p>
+                      ))}
+                    </article>
+                  ) : null}
                 </>
               ) : null}
             </div>
