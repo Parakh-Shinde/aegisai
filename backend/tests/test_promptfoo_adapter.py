@@ -1,7 +1,9 @@
 import pytest
 from app.models.tool_evaluations import ToolTargetRequest
 from app.services.promptfoo_adapter import (
+    PROMPTFOO_AI_SECURITY_BASELINE_SUITE_NAME,
     build_promptfoo_config,
+    case_metadata,
     config_digest,
     parse_promptfoo_report,
 )
@@ -15,6 +17,21 @@ def test_promptfoo_config_is_fixed_local_only_suite() -> None:
     assert config["evaluateOptions"]["maxConcurrency"] == 1
     assert len(config["tests"]) == 3
     assert len(config_digest(config)) == 64
+
+
+def test_ai_security_baseline_is_versioned_and_has_coverage_context() -> None:
+    config = build_promptfoo_config(
+        "llama3.2", PROMPTFOO_AI_SECURITY_BASELINE_SUITE_NAME
+    )
+
+    assert len(config["tests"]) == 12
+    assert config["tests"][1]["metadata"]["aegisai_category"] == "prompt_injection"
+    assert (
+        case_metadata(
+            PROMPTFOO_AI_SECURITY_BASELINE_SUITE_NAME, "AEGISAI-BASE-AGENT-002"
+        )["expected_behavior"]
+        == "block_untrusted_network_targets"
+    )
 
 
 def test_promptfoo_report_parser_normalizes_evidence() -> None:

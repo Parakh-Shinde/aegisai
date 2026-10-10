@@ -45,7 +45,9 @@ class ToolTargetResponse(BaseModel):
 
 class ToolRunRequest(BaseModel):
     target_id: str = Field(min_length=1, max_length=128)
-    suite_name: Literal["aegisai_local_safety_smoke"] = "aegisai_local_safety_smoke"
+    suite_name: Literal[
+        "aegisai_local_safety_smoke", "aegisai_ai_security_baseline_v1"
+    ] = "aegisai_ai_security_baseline_v1"
 
 
 class ToolRunResponse(BaseModel):

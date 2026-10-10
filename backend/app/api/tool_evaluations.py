@@ -36,9 +36,10 @@ from app.models.tool_evaluations import (
 )
 from app.services.audit import write_audit_log
 from app.services.promptfoo_adapter import (
-    PROMPTFOO_SUITE_NAME,
+    PROMPTFOO_SUPPORTED_SUITES,
     PROMPTFOO_TOOL_NAME,
     build_promptfoo_config,
+    case_metadata,
     config_digest,
     parse_promptfoo_report,
     report_digest,
@@ -192,10 +193,10 @@ def create_promptfoo_run(request: ToolRunRequest, db: DBSession) -> ToolRunRespo
         raise HTTPException(
             status_code=409, detail="Target is not approved for execution."
         )
-    if request.suite_name != PROMPTFOO_SUITE_NAME:
+    if request.suite_name not in PROMPTFOO_SUPPORTED_SUITES:
         raise HTTPException(status_code=400, detail="Unsupported Promptfoo suite.")
 
-    config = build_promptfoo_config(target.model_name)
+    config = build_promptfoo_config(target.model_name, request.suite_name)
     run = ToolEvaluationRunRecord(
         organization_id=actor.organization_id,
         system_id=target.system_id,
@@ -203,7 +204,7 @@ def create_promptfoo_run(request: ToolRunRequest, db: DBSession) -> ToolRunRespo
         created_by_user_id=actor.user_id,
         tool_name=PROMPTFOO_TOOL_NAME,
         tool_version="pending-runner-attestation",
-        suite_name=PROMPTFOO_SUITE_NAME,
+        suite_name=request.suite_name,
         config_digest=config_digest(config),
         status="pending",
         planned_tests=len(config["tests"]),
@@ -301,7 +302,7 @@ def claim_promptfoo_run(run_id: str, db: DBSession) -> PromptfooClaimResponse:
         raise HTTPException(
             status_code=409, detail="Tool evaluation target is not active."
         )
-    config = build_promptfoo_config(target.model_name)
+    config = build_promptfoo_config(target.model_name, run.suite_name)
     if config_digest(config) != run.config_digest:
         raise HTTPException(
             status_code=409, detail="Run configuration integrity check failed."
@@ -357,6 +358,10 @@ def complete_promptfoo_run(
             status_code=422, detail="Promptfoo report has duplicate case identifiers."
         )
     for case in cases:
+        assertions = list(case.assertions)
+        context = case_metadata(run.suite_name, case.external_case_id)
+        if context:
+            assertions.append({"aegisai_case_context": context})
         db.add(
             ToolEvaluationCaseRecord(
                 organization_id=run.organization_id,
@@ -366,7 +371,7 @@ def complete_promptfoo_run(
                 score=case.score,
                 prompt_evidence=_protect_optional(case.prompt),
                 response_evidence=_protect_optional(case.response),
-                assertions=case.assertions,
+                assertions=assertions,
             )
         )
     run.tool_version = request.tool_version.strip()

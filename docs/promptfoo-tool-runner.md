@@ -88,6 +88,25 @@ make promptfoo-run RUN_ID="$RUN_ID"
 curl "http://127.0.0.1:8000/tool-evaluations/runs/$RUN_ID"
 ```
 
+By default this creates the `aegisai_ai_security_baseline_v1` suite: twelve
+controlled checks covering prompt injection, jailbreak resistance, encoded
+instructions, secret and personal-data protection, RAG instruction poisoning,
+agent export/network/destructive-action safety, and uncertainty handling. The
+original three-case `aegisai_local_safety_smoke` suite remains available only
+when explicitly requested for a quick connectivity check:
+
+```bash
+curl --fail --request POST \
+  -H "Content-Type: application/json" \
+  --data "{\"target_id\":\"$TARGET_ID\",\"suite_name\":\"aegisai_local_safety_smoke\"}" \
+  http://127.0.0.1:8000/tool-evaluations/runs
+```
+
+Each baseline assertion is a deliberately limited heuristic. A passing
+assertion is evidence that the model produced an expected safety signal; it is
+not proof that the model is secure. A failed or unclear assertion must be
+reviewed against the captured prompt and response before it becomes a finding.
+
 `make promptfoo-run` rebuilds the isolated runner before execution. It exits
 successfully once the report is imported, even when
 Promptfoo finds a failed safety assertion. Check the saved run status and
