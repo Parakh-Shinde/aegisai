@@ -1,6 +1,6 @@
 """Persist evidence for model-to-gateway runtime evaluations.
 
-Revision ID: 0012_model_agent_gateway_evaluation
+Revision ID: 0012_model_gateway_eval
 Revises: 0011_promptfoo_tool_runner
 Create Date: 2026-10-10
 """
@@ -8,7 +8,7 @@ Create Date: 2026-10-10
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0012_model_agent_gateway_evaluation"
+revision = "0012_model_gateway_eval"
 down_revision = "0011_promptfoo_tool_runner"
 branch_labels = None
 depends_on = None
