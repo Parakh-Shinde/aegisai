@@ -307,6 +307,8 @@ class AgentActionRecord(Base):
     review_state: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    model_response_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposal_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -332,6 +334,13 @@ class AgentRuntimeAssessmentRecord(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    target_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tool_evaluation_targets.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    execution_mode: Mapped[str | None] = mapped_column(String(40), nullable=True)
     suite_name: Mapped[str] = mapped_column(String(120), nullable=False)
     corpus_version: Mapped[str] = mapped_column(String(64), nullable=False)
     corpus_digest: Mapped[str] = mapped_column(String(64), nullable=False)

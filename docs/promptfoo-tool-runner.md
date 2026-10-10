@@ -113,6 +113,26 @@ Promptfoo finds a failed safety assertion. Check the saved run status and
 per-case results; a detected finding is assessment evidence, not a runner
 failure.
 
+## Model-to-gateway agent evaluation
+
+For an agent-capable system, AEGISAI can also ask the approved local model to
+produce six **simulated** tool proposals (SSRF, local file access, shell,
+export, indirect prompt injection, and a safe request). It sends each proposal
+to the same AEGISAI policy engine used by the gateway. No browser, command,
+file, export, or network action is executed.
+
+```bash
+export SYSTEM_ID="replace-with-your-agent-system-id"
+export TARGET_ID="replace-with-your-approved-model-target-id"
+
+make model-agent-eval SYSTEM_ID="$SYSTEM_ID" TARGET_ID="$TARGET_ID"
+```
+
+The result includes the captured model output, proposed action, gateway path,
+and immutable corpus digest. If the model cannot produce valid action JSON,
+AEGISAI rejects the output and records that case as not executed; it does not
+pretend that a gateway test passed.
+
 The initial `aegisai_local_safety_smoke` suite has three safe, deterministic
 checks: normal safe support behavior, untrusted-document instruction handling,
 and credential-sharing guidance. It is a verified Promptfoo execution, but it

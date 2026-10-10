@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.evidence import protect_evidence, reveal_evidence
 from app.core.security import (
     require_agent_gateway_token,
     require_api_key,
@@ -21,6 +22,7 @@ from app.db.models import (
     AgentActionRecord,
     AgentRuntimeAssessmentRecord,
     AISystemProfileRecord,
+    ToolEvaluationTargetRecord,
     UserRole,
 )
 from app.models.agent_security import (
@@ -36,6 +38,7 @@ from app.models.agent_security import (
     AgentRuntimeEvaluationResponse,
     AgentRuntimeMetricsResponse,
     AgentSecuritySignalResponse,
+    ModelAgentRuntimeEvaluationRequest,
 )
 from app.services.agent_runtime_evaluation import (
     AgentRuntimeEvaluationAssetError,
@@ -49,6 +52,12 @@ from app.services.assessment_metrics import (
     calculate_assessment_metrics,
 )
 from app.services.audit import write_audit_log
+from app.services.model_agent_evaluation import (
+    ModelAgentEvaluationError,
+    load_model_agent_suite,
+    rejected_model_output_analysis,
+    request_model_action,
+)
 
 router = APIRouter(
     prefix="/agent-security",
@@ -467,6 +476,221 @@ def run_agent_runtime_evaluation(
     )
 
 
+@router.post(
+    "/evaluations/model-run",
+    response_model=AgentRuntimeEvaluationResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
+def run_model_agent_runtime_evaluation(
+    request: ModelAgentRuntimeEvaluationRequest,
+    db: DBSession,
+) -> AgentRuntimeEvaluationResponse:
+    """Send controlled scenarios to an approved model, then enforce proposals.
+
+    This endpoint never performs the requested browser, shell, file, export, or
+    network action. It only asks the model for a JSON proposal and evaluates it
+    using the same gateway policy engine that protects a real agent runtime.
+    """
+    validate_identifier(request.system_id, "system_id")
+    validate_identifier(request.target_id, "target_id")
+    system = require_tenant_agent_system(db, request.system_id)
+    actor = request_actor(db)
+    target = db.scalar(
+        select(ToolEvaluationTargetRecord).where(
+            ToolEvaluationTargetRecord.id == request.target_id,
+            ToolEvaluationTargetRecord.organization_id == actor.organization_id,
+            ToolEvaluationTargetRecord.system_id == system.id,
+        )
+    )
+    if target is None or not target.active or not target.authorization_confirmed:
+        raise HTTPException(status_code=404, detail="Approved model target not found.")
+    try:
+        suite = load_model_agent_suite()
+    except ModelAgentEvaluationError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="The committed model gateway evaluation suite is unavailable.",
+        ) from exc
+
+    settings = get_settings()
+    run_id = str(uuid4())
+    started_at = datetime.now(UTC)
+    assessment_started = perf_counter()
+    case_responses: list[AgentRuntimeEvaluationCaseResponse] = []
+    ground_truth_cases: list[GroundTruthCase] = []
+    for test in suite.tests:
+        case_started = perf_counter()
+        model_response: str | None = None
+        proposed_action: dict[str, object] | None = None
+        try:
+            proposal = request_model_action(
+                endpoint=target.endpoint,
+                model_name=target.model_name,
+                test=test,
+                timeout_seconds=settings.model_timeout_seconds,
+            )
+            model_response = proposal.model_response
+            proposed_action = {
+                "action_type": proposal.action_type,
+                "tool_name": proposal.tool_name,
+                "target": proposal.target,
+                "arguments": proposal.arguments,
+                "page_excerpt": proposal.page_excerpt,
+            }
+            analysis = analyze_agent_action(
+                action_type=proposal.action_type,
+                tool_name=proposal.tool_name,
+                target=proposal.target,
+                arguments=proposal.arguments,
+                page_excerpt=proposal.page_excerpt,
+            )
+            action_type = proposal.action_type
+            tool_name = proposal.tool_name
+            target_value = proposal.target
+            enforcement_path = f"gateway_{analysis.verdict}"
+            passed = analysis.verdict == test.expected_verdict
+            ground_truth_cases.append(
+                GroundTruthCase(
+                    expected_verdict=test.expected_verdict,
+                    actual_verdict=analysis.verdict,
+                    elapsed_ms=round((perf_counter() - case_started) * 1000),
+                )
+            )
+        except ModelAgentEvaluationError as exc:
+            analysis = rejected_model_output_analysis(str(exc))
+            action_type = "other"
+            tool_name = "model_action_parser"
+            target_value = None
+            enforcement_path = "model_output_rejected"
+            passed = False
+
+        record = AgentActionRecord(
+            organization_id=actor.organization_id,
+            system_id=system.id,
+            created_by_user_id=actor.user_id,
+            action_type=action_type,
+            tool_name=tool_name,
+            target=target_value,
+            decision_source="model_runtime_evaluation",
+            evaluation_run_id=run_id,
+            evaluation_case_id=test.test_id,
+            evaluation_expected_verdict=test.expected_verdict,
+            request_sha256=analysis.request_sha256,
+            request_characters=analysis.request_characters,
+            verdict=analysis.verdict,
+            signals=[
+                {
+                    "code": signal.code,
+                    "severity": signal.severity,
+                    "message": signal.message,
+                }
+                for signal in analysis.signals
+            ],
+            recommendation=analysis.recommendation,
+            review_state=_review_state_for_verdict(analysis.verdict),
+            model_response_evidence=(
+                protect_evidence(model_response[:12_000]) if model_response else None
+            ),
+            proposal_evidence=(
+                protect_evidence(json.dumps(proposed_action, sort_keys=True))
+                if proposed_action
+                else None
+            ),
+        )
+        db.add(record)
+        db.flush()
+        case_responses.append(
+            AgentRuntimeEvaluationCaseResponse(
+                test_id=test.test_id,
+                action_id=record.id,
+                expected_verdict=test.expected_verdict,
+                actual_verdict=analysis.verdict,
+                passed=passed,
+                signals=[
+                    AgentSecuritySignalResponse(
+                        code=signal.code,
+                        severity=signal.severity,
+                        message=signal.message,
+                    )
+                    for signal in analysis.signals
+                ],
+                enforcement_path=cast(
+                    Literal[
+                        "gateway_allowed",
+                        "gateway_quarantined",
+                        "gateway_blocked",
+                        "model_output_rejected",
+                    ],
+                    enforcement_path,
+                ),
+                model_response=model_response,
+                proposed_action=proposed_action,
+            )
+        )
+
+    failed_tests = sum(not case.passed for case in case_responses)
+    completed_at = datetime.now(UTC)
+    metrics = calculate_assessment_metrics(
+        ground_truth_cases,
+        planned_tests=len(suite.tests),
+        assessment_duration_ms=round((perf_counter() - assessment_started) * 1000),
+    )
+    assessment = AgentRuntimeAssessmentRecord(
+        id=run_id,
+        organization_id=actor.organization_id,
+        system_id=system.id,
+        created_by_user_id=actor.user_id,
+        target_id=target.id,
+        model_name=target.model_name,
+        execution_mode="model_to_gateway",
+        suite_name=suite.suite_name,
+        corpus_version=suite.version,
+        corpus_digest=suite.digest,
+        scoring_rule_version=suite.scoring_rule_version,
+        planned_tests=metrics.planned_tests,
+        executed_tests=metrics.executed_tests,
+        skipped_tests=metrics.skipped_tests,
+        unsupported_tests=metrics.unsupported_tests,
+        metrics=metrics.as_dict(),
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+    db.add(assessment)
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="agent_runtime_evaluation.model_gateway_run",
+        resource_type="agent_runtime_evaluation",
+        resource_id=run_id,
+        details={
+            "system_id": system.id,
+            "target_id": target.id,
+            "model_name": target.model_name,
+            "suite_name": suite.suite_name,
+            "total_tests": len(case_responses),
+            "failed_tests": failed_tests,
+            "executed_tests": metrics.executed_tests,
+        },
+    )
+    db.commit()
+    return AgentRuntimeEvaluationResponse(
+        run_id=run_id,
+        system_id=system.id,
+        suite_name=suite.suite_name,
+        corpus_version=suite.version,
+        corpus_digest=suite.digest,
+        scoring_rule_version=suite.scoring_rule_version,
+        total_tests=len(case_responses),
+        passed_tests=len(case_responses) - failed_tests,
+        failed_tests=failed_tests,
+        evaluation_status="failed" if failed_tests else "passed",
+        metrics=_metrics_to_response(metrics),
+        cases=case_responses,
+    )
+
+
 @router.get(
     "/evaluations/{run_id}",
     response_model=AgentRuntimeEvaluationResponse,
@@ -508,7 +732,10 @@ def get_agent_runtime_evaluation(
             actual_verdict=cast(
                 Literal["allowed", "quarantined", "blocked"], record.verdict
             ),
-            passed=record.evaluation_expected_verdict == record.verdict,
+            passed=(
+                record.evaluation_expected_verdict == record.verdict
+                and not _model_output_rejected(record)
+            ),
             signals=[
                 AgentSecuritySignalResponse(
                     code=signal["code"],
@@ -517,6 +744,13 @@ def get_agent_runtime_evaluation(
                 )
                 for signal in record.signals
             ],
+            enforcement_path=_stored_enforcement_path(record),
+            model_response=(
+                reveal_evidence(record.model_response_evidence)
+                if record.model_response_evidence
+                else None
+            ),
+            proposed_action=_stored_proposal(record.proposal_evidence),
         )
         for record in records
     ]
@@ -590,9 +824,7 @@ def review_agent_action(
             detail="Only an administrator can approve an action by exception.",
         )
     record.review_state = (
-        "approved_exception"
-        if request.decision == "approve_exception"
-        else "rejected"
+        "approved_exception" if request.decision == "approve_exception" else "rejected"
     )
     record.review_notes = request.notes.strip()
     record.reviewed_by_user_id = actor.user_id
@@ -621,6 +853,41 @@ def _review_state_for_verdict(verdict: str) -> str:
 
 def _metrics_to_response(metrics: AssessmentMetrics) -> AgentRuntimeMetricsResponse:
     return AgentRuntimeMetricsResponse.model_validate(metrics.as_dict())
+
+
+def _stored_enforcement_path(
+    record: AgentActionRecord,
+) -> Literal[
+    "not_applicable",
+    "gateway_allowed",
+    "gateway_quarantined",
+    "gateway_blocked",
+    "model_output_rejected",
+]:
+    if record.decision_source != "model_runtime_evaluation":
+        return "not_applicable"
+    if _model_output_rejected(record):
+        return "model_output_rejected"
+    return cast(
+        Literal["gateway_allowed", "gateway_quarantined", "gateway_blocked"],
+        f"gateway_{record.verdict}",
+    )
+
+
+def _model_output_rejected(record: AgentActionRecord) -> bool:
+    return any(
+        signal["code"] == "model_action_output_rejected" for signal in record.signals
+    )
+
+
+def _stored_proposal(protected_value: str | None) -> dict[str, object] | None:
+    if not protected_value:
+        return None
+    try:
+        value = json.loads(reveal_evidence(protected_value))
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def _enforcement_response(

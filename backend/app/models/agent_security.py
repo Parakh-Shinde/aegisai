@@ -76,6 +76,10 @@ class AgentRuntimeEvaluationRequest(BaseModel):
     system_id: str = Field(min_length=1, max_length=128)
 
 
+class ModelAgentRuntimeEvaluationRequest(AgentRuntimeEvaluationRequest):
+    target_id: str = Field(min_length=1, max_length=128)
+
+
 class AgentRuntimeEvaluationCaseResponse(BaseModel):
     test_id: str
     action_id: str
@@ -83,6 +87,15 @@ class AgentRuntimeEvaluationCaseResponse(BaseModel):
     actual_verdict: ActionVerdict
     passed: bool
     signals: list[AgentSecuritySignalResponse]
+    enforcement_path: Literal[
+        "not_applicable",
+        "gateway_allowed",
+        "gateway_quarantined",
+        "gateway_blocked",
+        "model_output_rejected",
+    ] = "not_applicable"
+    model_response: str | None = None
+    proposed_action: dict[str, Any] | None = None
 
 
 class MeasurementValueResponse(BaseModel):

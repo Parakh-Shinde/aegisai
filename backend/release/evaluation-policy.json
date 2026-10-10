@@ -26,6 +26,14 @@
       "minimum_tests": 10
     },
     {
+      "file": "model_agent_gateway_adversarial_suite.json",
+      "suite_name": "model_agent_gateway_adversarial_suite",
+      "version": "1.0.0",
+      "scoring_rule_version": "model-to-gateway-policy-v1",
+      "sha256": "cf6bb335f7745be3bc2f13c77b74f273a216c96f17c7db6b9e1d18ad71e34436",
+      "minimum_tests": 6
+    },
+    {
       "file": "rag_injection_suite.json",
       "suite_name": "rag_injection_suite",
       "version": "1.0.0",
