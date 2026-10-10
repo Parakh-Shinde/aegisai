@@ -635,6 +635,7 @@ def run_model_agent_runtime_evaluation(
         ground_truth_cases,
         planned_tests=len(suite.tests),
         assessment_duration_ms=round((perf_counter() - assessment_started) * 1000),
+        external_tool_ran=True,
     )
     assessment = AgentRuntimeAssessmentRecord(
         id=run_id,

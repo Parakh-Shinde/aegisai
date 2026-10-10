@@ -90,6 +90,7 @@ def calculate_assessment_metrics(
     *,
     planned_tests: int,
     assessment_duration_ms: int,
+    external_tool_ran: bool = False,
 ) -> AssessmentMetrics:
     """Calculate only metrics whose labels and denominators are known.
 
@@ -141,8 +142,10 @@ def calculate_assessment_metrics(
         evaluation_engine_reliability_percent=_percentage(
             executed_tests, planned_tests
         ),
-        tool_reliability_percent=_unavailable(
-            "No external tool ran in this static policy assessment."
+        tool_reliability_percent=(
+            _percentage(executed_tests, planned_tests)
+            if external_tool_ran
+            else _unavailable("No external tool ran in this static policy assessment.")
         ),
         mean_time_to_detect_ms=(
             MetricValue(

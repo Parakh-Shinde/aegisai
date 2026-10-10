@@ -41,3 +41,15 @@ def test_metrics_mark_external_evidence_as_unavailable() -> None:
     assert metrics.resource_consumption.status == "unavailable"
     assert metrics.remediation_success_rate_percent.status == "unavailable"
     assert metrics.regression_rate_percent.status == "unavailable"
+
+
+def test_metrics_report_reliability_when_an_external_tool_ran() -> None:
+    metrics = calculate_assessment_metrics(
+        [GroundTruthCase("allowed", "allowed", 1)],
+        planned_tests=2,
+        assessment_duration_ms=1,
+        external_tool_ran=True,
+    )
+
+    assert metrics.tool_reliability_percent.value == 50.0
+    assert metrics.tool_reliability_percent.status == "available"
