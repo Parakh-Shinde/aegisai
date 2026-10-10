@@ -17,6 +17,7 @@ This roadmap describes how AEGISAI grows from a local evaluator into a serious A
 | RAG source security ledger | Available for staging sources; static inspection only |
 | Agent action security gateway | Available for staged action proposals; static inspection only |
 | Agent runtime enforcement API | Available; target agents must honor its decision |
+| Agent runtime adversarial evaluation | Available; static policy checks only, no action execution |
 | CI checks | Available |
 
 ## v11: Lab Operating System
@@ -52,26 +53,27 @@ backend/app/corpus/rag_injection_suite.json
 
 ## v14: Agent Runtime And Tool Safety Evaluation
 
-Goal: test models and agents that use tools, connectors, or external content at
-runtime. This builds on v0.12 action inspection and requires integration with
-the target agent runtime. v0.13 provides the pre-action enforcement contract;
-this milestone adds runtime-specific adversarial evaluation.
+Goal: test agents that use tools, connectors, or external content at runtime.
+This builds on v0.12 action inspection and v0.13 enforcement. It runs a
+committed, deterministic evaluation corpus against AEGISAI's action policy and
+retains an evidence record for every case. It does not execute a browser, tool,
+connector, shell command, or network request.
 
 Coverage:
 
-- tool-output instruction injection
-- external exfiltration requests
-- permission-boundary violations
-- destructive action requests
-- untrusted plugin or website claims
+- localhost and internal-target protection
+- unsafe browser and file-navigation targets
+- indirect prompt injection in browser content
+- shell, data-export, secret, and file-boundary controls
+- expected-policy regression detection
 
 Corpus:
 
 ```text
-backend/app/corpus/agent_tool_safety_suite.json
+backend/app/corpus/agent_runtime_adversarial_suite.json
 ```
 
-## v14: Regression And Baseline Comparison
+## v15: Regression And Baseline Comparison
 
 Goal: compare a new candidate model against previous models.
 

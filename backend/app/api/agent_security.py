@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import Select, select
@@ -24,7 +25,15 @@ from app.models.agent_security import (
     AgentActionReviewRequest,
     AgentActionSummary,
     AgentEnforcementResponse,
+    AgentRuntimeEvaluationCaseResponse,
+    AgentRuntimeEvaluationRequest,
+    AgentRuntimeEvaluationResponse,
     AgentSecuritySignalResponse,
+)
+from app.services.agent_runtime_evaluation import (
+    AgentRuntimeEvaluationAssetError,
+    evaluate_agent_runtime_case,
+    load_agent_runtime_suite,
 )
 from app.services.agent_security import analyze_agent_action
 from app.services.audit import write_audit_log
@@ -303,6 +312,108 @@ def enforce_agent_action(
         )
     db.refresh(record)
     return _enforcement_response(record, settings.agent_enforcement_mode)
+
+
+@router.post(
+    "/evaluations/run",
+    response_model=AgentRuntimeEvaluationResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
+def run_agent_runtime_evaluation(
+    request: AgentRuntimeEvaluationRequest,
+    db: DBSession,
+) -> AgentRuntimeEvaluationResponse:
+    """Run the committed static suite without executing any proposed action."""
+    validate_identifier(request.system_id, "system_id")
+    system = require_tenant_agent_system(db, request.system_id)
+    try:
+        suite = load_agent_runtime_suite()
+    except AgentRuntimeEvaluationAssetError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="The committed agent runtime evaluation suite is unavailable.",
+        ) from exc
+
+    actor = request_actor(db)
+    run_id = str(uuid4())
+    case_responses: list[AgentRuntimeEvaluationCaseResponse] = []
+    for test in suite.tests:
+        analysis = evaluate_agent_runtime_case(test)
+        record = AgentActionRecord(
+            organization_id=actor.organization_id,
+            system_id=system.id,
+            created_by_user_id=actor.user_id,
+            action_type=test.action_type,
+            tool_name=test.tool_name,
+            target=test.target,
+            decision_source="runtime_evaluation",
+            evaluation_run_id=run_id,
+            evaluation_case_id=test.test_id,
+            request_sha256=analysis.request_sha256,
+            request_characters=analysis.request_characters,
+            verdict=analysis.verdict,
+            signals=[
+                {
+                    "code": signal.code,
+                    "severity": signal.severity,
+                    "message": signal.message,
+                }
+                for signal in analysis.signals
+            ],
+            recommendation=analysis.recommendation,
+            review_state=_review_state_for_verdict(analysis.verdict),
+        )
+        db.add(record)
+        db.flush()
+        case_responses.append(
+            AgentRuntimeEvaluationCaseResponse(
+                test_id=test.test_id,
+                action_id=record.id,
+                expected_verdict=test.expected_verdict,
+                actual_verdict=analysis.verdict,
+                passed=analysis.verdict == test.expected_verdict,
+                signals=[
+                    AgentSecuritySignalResponse(
+                        code=signal.code,
+                        severity=signal.severity,
+                        message=signal.message,
+                    )
+                    for signal in analysis.signals
+                ],
+            )
+        )
+    failed_tests = sum(not case.passed for case in case_responses)
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="agent_runtime_evaluation.run",
+        resource_type="agent_runtime_evaluation",
+        resource_id=run_id,
+        details={
+            "system_id": system.id,
+            "suite_name": suite.suite_name,
+            "corpus_version": suite.version,
+            "corpus_digest": suite.digest,
+            "total_tests": len(case_responses),
+            "failed_tests": failed_tests,
+        },
+    )
+    db.commit()
+    return AgentRuntimeEvaluationResponse(
+        run_id=run_id,
+        system_id=system.id,
+        suite_name=suite.suite_name,
+        corpus_version=suite.version,
+        corpus_digest=suite.digest,
+        scoring_rule_version=suite.scoring_rule_version,
+        total_tests=len(case_responses),
+        passed_tests=len(case_responses) - failed_tests,
+        failed_tests=failed_tests,
+        evaluation_status="failed" if failed_tests else "passed",
+        cases=case_responses,
+    )
 
 
 @router.get("/actions", response_model=AgentActionSummary)

@@ -2,6 +2,14 @@
   "schema_version": "1.0",
   "required_corpora": [
     {
+      "file": "agent_runtime_adversarial_suite.json",
+      "suite_name": "agent_runtime_adversarial_suite",
+      "version": "1.0.0",
+      "scoring_rule_version": "agent-runtime-policy-v1",
+      "sha256": "669c59c25786ffd8e4d7e30529022e99e44636bd0a539e737a4bc00a5e1379c9",
+      "minimum_tests": 8
+    },
+    {
       "file": "agent_tool_safety_suite.json",
       "suite_name": "agent_tool_safety_suite",
       "version": "1.0.0",

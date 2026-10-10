@@ -72,6 +72,33 @@ class AgentEnforcementResponse(BaseModel):
     idempotent_replay: bool = False
 
 
+class AgentRuntimeEvaluationRequest(BaseModel):
+    system_id: str = Field(min_length=1, max_length=128)
+
+
+class AgentRuntimeEvaluationCaseResponse(BaseModel):
+    test_id: str
+    action_id: str
+    expected_verdict: ActionVerdict
+    actual_verdict: ActionVerdict
+    passed: bool
+    signals: list[AgentSecuritySignalResponse]
+
+
+class AgentRuntimeEvaluationResponse(BaseModel):
+    run_id: str
+    system_id: str
+    suite_name: str
+    corpus_version: str
+    corpus_digest: str
+    scoring_rule_version: str
+    total_tests: int
+    passed_tests: int
+    failed_tests: int
+    evaluation_status: Literal["passed", "failed"]
+    cases: list[AgentRuntimeEvaluationCaseResponse]
+
+
 class AgentActionSummary(BaseModel):
     total_actions: int
     allowed: int

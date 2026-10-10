@@ -282,6 +282,15 @@ class AgentActionRecord(Base):
         String(128),
         nullable=True,
     )
+    evaluation_run_id: Mapped[str | None] = mapped_column(
+        String(36),
+        index=True,
+        nullable=True,
+    )
+    evaluation_case_id: Mapped[str | None] = mapped_column(
+        String(96),
+        nullable=True,
+    )
     request_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     request_characters: Mapped[int] = mapped_column(Integer, nullable=False)
     verdict: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
