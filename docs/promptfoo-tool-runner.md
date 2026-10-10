@@ -14,6 +14,9 @@ discover targets, or send evaluation content to a remote red-team provider.
 - The Promptfoo container has no database credentials, no frontend secrets,
   no Linux capabilities, a read-only root filesystem, PID/memory/CPU limits,
   and temporary `/tmp` working storage only.
+- Promptfoo's home, cache, and configuration directories are redirected to
+  that temporary storage, so it cannot write to the container user's home or
+  retain state between runs.
 - A dedicated `AEGISAI_TOOL_RUNNER_TOKEN` authenticates the runner's claim and
   result-import calls. Use a unique 32+ character value outside local testing.
 - Promptfoo version, immutable config digest, report digest, per-case outcome,

@@ -2,6 +2,10 @@ FROM node:22-alpine
 
 ARG PROMPTFOO_VERSION=0.124.1
 ENV NODE_ENV=production \
+    HOME=/tmp \
+    XDG_CONFIG_HOME=/tmp/.config \
+    XDG_CACHE_HOME=/tmp/.cache \
+    XDG_DATA_HOME=/tmp/.local/share \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     PROMPTFOO_DISABLE_TELEMETRY=true \
     PROMPTFOO_DISABLE_UPDATE_CHECK=true \
