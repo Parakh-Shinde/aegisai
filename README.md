@@ -65,6 +65,10 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > application through an allowlisted, isolated runner with environment-only
 > credentials. See [Live AI Application Testing](docs/live-application-testing.md).
 
+> **Multimodal input security:** quarantine risky image and document uploads
+> before they reach a model, OCR pipeline, RAG index, or agent. See
+> [Multimodal Input Security](docs/multimodal-input-security.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**
