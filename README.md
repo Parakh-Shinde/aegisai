@@ -53,6 +53,10 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > against the agent action policy and retain evidence for each result. See
 > [Agent Runtime Evaluation](docs/agent-runtime-evaluation.md).
 
+> **Agent integration client:** use a fail-closed Python helper so an external
+> agent asks AEGISAI before executing a protected action. See
+> [Agent Integration Client](docs/agent-integration-client.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**

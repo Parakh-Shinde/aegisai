@@ -18,6 +18,7 @@ This roadmap describes how AEGISAI grows from a local evaluator into a serious A
 | Agent action security gateway | Available for staged action proposals; static inspection only |
 | Agent runtime enforcement API | Available; target agents must honor its decision |
 | Agent runtime adversarial evaluation | Available; static policy checks only, no action execution |
+| Agent integration client | Available; external runtime must use it at each protected action |
 | CI checks | Available |
 
 ## v11: Lab Operating System
@@ -73,7 +74,19 @@ Corpus:
 backend/app/corpus/agent_runtime_adversarial_suite.json
 ```
 
-## v15: Regression And Baseline Comparison
+## v15: Agent Integration Client
+
+Goal: make the v0.13 enforcement decision easy to apply in a real Python agent
+runtime. The client fails closed: it refuses to invoke a supplied operation on
+gateway errors, malformed replies, or deny/review decisions.
+
+The integration is available in:
+
+```text
+backend/app/integrations/agent_gateway.py
+```
+
+## v16: Regression And Baseline Comparison
 
 Goal: compare a new candidate model against previous models.
 
