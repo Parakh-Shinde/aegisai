@@ -36,6 +36,14 @@ def test_production_requires_explicit_cors_and_trusted_hosts(
         get_settings()
 
 
+def test_default_trusted_hosts_include_internal_tool_runner_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AEGISAI_TRUSTED_HOSTS", raising=False)
+
+    assert "api" in get_settings().trusted_hosts
+
+
 def test_production_requires_redis_and_async_campaigns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

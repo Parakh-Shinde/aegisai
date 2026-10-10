@@ -57,7 +57,7 @@ def get_settings() -> Settings:
     )
     trusted_hosts = _comma_separated_env(
         "AEGISAI_TRUSTED_HOSTS",
-        "localhost,127.0.0.1,testserver",
+        "localhost,127.0.0.1,api,testserver",
     )
     redis_url = os.getenv("AEGISAI_REDIS_URL") or None
     async_campaigns = os.getenv("AEGISAI_ASYNC_CAMPAIGNS", "false").lower() == "true"

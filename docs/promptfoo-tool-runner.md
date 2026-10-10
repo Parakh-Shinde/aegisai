@@ -41,6 +41,8 @@ For the Windows-host Ollama example used by this project:
 
 ```dotenv
 AEGISAI_LOCAL_MODEL_ENDPOINTS=http://172.22.160.1:11434
+# Required so the isolated container can call the internal API service.
+AEGISAI_TRUSTED_HOSTS=localhost,127.0.0.1,api
 ```
 
 ## Run a real local evaluation
