@@ -7,11 +7,9 @@ ENV NODE_ENV=production \
     PROMPTFOO_DISABLE_UPDATE_CHECK=true \
     AEGISAI_PROMPTFOO_VERSION=${PROMPTFOO_VERSION}
 
-RUN npm install --global --omit=dev "promptfoo@${PROMPTFOO_VERSION}" \
-    && mkdir /work \
-    && chown node:node /work
+RUN npm install --global --omit=dev "promptfoo@${PROMPTFOO_VERSION}"
 
-WORKDIR /work
+WORKDIR /tmp
 COPY runner.mjs /opt/aegisai/runner.mjs
 
 USER node

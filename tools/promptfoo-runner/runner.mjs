@@ -49,8 +49,8 @@ try {
   const claim = await api(`/tool-evaluations/runner/runs/${encodeURIComponent(runId)}/claim`, {
     method: 'POST',
   });
-  const configPath = '/work/promptfoo.json';
-  const reportPath = '/work/promptfoo-report.json';
+  const configPath = '/tmp/promptfoo.json';
+  const reportPath = '/tmp/promptfoo-report.json';
   writeFileSync(configPath, JSON.stringify(claim.config, null, 2));
 
   const result = spawnSync(

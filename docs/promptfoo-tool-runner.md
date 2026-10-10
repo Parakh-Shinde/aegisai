@@ -13,7 +13,7 @@ discover targets, or send evaluation content to a remote red-team provider.
   explicitly approved endpoint allowlist.
 - The Promptfoo container has no database credentials, no frontend secrets,
   no Linux capabilities, a read-only root filesystem, PID/memory/CPU limits,
-  and temporary working storage only.
+  and temporary `/tmp` working storage only.
 - A dedicated `AEGISAI_TOOL_RUNNER_TOKEN` authenticates the runner's claim and
   result-import calls. Use a unique 32+ character value outside local testing.
 - Promptfoo version, immutable config digest, report digest, per-case outcome,

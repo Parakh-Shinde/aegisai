@@ -148,7 +148,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
-      - /work:rw,noexec,nosuid,size=64m
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 128
