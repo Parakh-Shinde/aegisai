@@ -73,6 +73,7 @@ agent-gateway-demo:
 
 promptfoo-run:
 	@test -n "$(RUN_ID)" || (echo "Set RUN_ID to a pending Promptfoo evaluation run ID" >&2; exit 2)
+	docker compose --profile tools build promptfoo-runner
 	docker compose --profile tools run --rm -e RUN_ID="$(RUN_ID)" promptfoo-runner
 
 test:

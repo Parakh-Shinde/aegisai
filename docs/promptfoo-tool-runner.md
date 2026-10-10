@@ -85,7 +85,8 @@ make promptfoo-run RUN_ID="$RUN_ID"
 curl "http://127.0.0.1:8000/tool-evaluations/runs/$RUN_ID"
 ```
 
-`make promptfoo-run` exits successfully once the report is imported, even when
+`make promptfoo-run` rebuilds the isolated runner before execution. It exits
+successfully once the report is imported, even when
 Promptfoo finds a failed safety assertion. Check the saved run status and
 per-case results; a detected finding is assessment evidence, not a runner
 failure.
