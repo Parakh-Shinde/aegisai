@@ -165,6 +165,48 @@ type AgentActionSummary = {
   recent_actions: AgentAction[];
 };
 
+type MeasurementValue = {
+  value: number | null;
+  status: "available" | "unavailable";
+  denominator: number | null;
+  reason: string | null;
+};
+
+type AgentRuntimeMetrics = {
+  planned_tests: number;
+  executed_tests: number;
+  skipped_tests: number;
+  unsupported_tests: number;
+  true_positives: number;
+  false_positives: number;
+  false_negatives: number;
+  true_negatives: number;
+  test_execution_rate_percent: MeasurementValue;
+  applicable_test_coverage_percent: MeasurementValue;
+  detection_precision_percent: MeasurementValue;
+  detection_recall_percent: MeasurementValue;
+  false_positive_rate_percent: MeasurementValue;
+  evaluation_engine_reliability_percent: MeasurementValue;
+  tool_reliability_percent: MeasurementValue;
+  mean_time_to_detect_ms: MeasurementValue;
+  assessment_duration_ms: MeasurementValue;
+  resource_consumption: MeasurementValue;
+  remediation_success_rate_percent: MeasurementValue;
+  regression_rate_percent: MeasurementValue;
+};
+
+type AgentRuntimeEvaluation = {
+  run_id: string;
+  system_id: string;
+  suite_name: string;
+  corpus_version: string;
+  total_tests: number;
+  passed_tests: number;
+  failed_tests: number;
+  evaluation_status: "passed" | "failed";
+  metrics: AgentRuntimeMetrics;
+};
+
 type SecurityResult = {
   test_id: string;
   created_at: string;
@@ -505,6 +547,7 @@ export default function App() {
   const [ragSourceReference, setRagSourceReference] = useState("");
   const [ragSourceContent, setRagSourceContent] = useState("");
   const [agentActionSummary, setAgentActionSummary] = useState<AgentActionSummary | null>(null);
+  const [agentRuntimeEvaluation, setAgentRuntimeEvaluation] = useState<AgentRuntimeEvaluation | null>(null);
   const [agentSystemId, setAgentSystemId] = useState("");
   const [agentActionType, setAgentActionType] = useState<AgentAction["action_type"]>("browser_navigation");
   const [agentToolName, setAgentToolName] = useState("knowledge_browser");
@@ -768,6 +811,38 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function runAgentRuntimeEvaluation() {
+    if (!agentSystemId) {
+      setError("Choose an agent-capable system before running the evaluation.");
+      return;
+    }
+    setError("");
+    setIsLoading(true);
+    try {
+      const result = await apiSend<AgentRuntimeEvaluation>(
+        "/agent-security/evaluations/run",
+        "POST",
+        { system_id: agentSystemId },
+      );
+      setAgentRuntimeEvaluation(result);
+      setMessage(
+        `Ground-truth evaluation ${result.evaluation_status}: ${result.passed_tests}/${result.total_tests} cases passed.`,
+      );
+      await refreshAgentActions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Agent runtime evaluation failed");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function formatMeasurement(metric: MeasurementValue, suffix = "%") {
+    if (metric.status === "unavailable" || metric.value === null) {
+      return "Unavailable";
+    }
+    return `${metric.value}${suffix}`;
   }
 
   async function checkHealth() {
@@ -1697,6 +1772,9 @@ export default function App() {
               <button className="secondary-button" type="button" onClick={() => void refreshAgentActions()}>
                 Refresh History
               </button>
+              <button className="secondary-button" type="button" disabled={isLoading} onClick={() => void runAgentRuntimeEvaluation()}>
+                Run Ground-Truth Evaluation
+              </button>
             </div>
           </form>
 
@@ -1718,6 +1796,27 @@ export default function App() {
               <strong className="bad-text">{agentActionSummary?.blocked ?? 0}</strong>
             </article>
           </div>
+
+          {agentRuntimeEvaluation ? (
+            <div className="assessment-metrics">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Measurable Evidence</p>
+                  <h3>Ground-Truth Assessment: {agentRuntimeEvaluation.evaluation_status}</h3>
+                  <p className="muted-copy">Run {agentRuntimeEvaluation.run_id} · {agentRuntimeEvaluation.suite_name} v{agentRuntimeEvaluation.corpus_version}</p>
+                </div>
+              </div>
+              <div className="review-mini agent-action-summary">
+                <article><span>Executed / planned</span><strong>{agentRuntimeEvaluation.metrics.executed_tests} / {agentRuntimeEvaluation.metrics.planned_tests}</strong></article>
+                <article><span>Precision</span><strong className="ok-text">{formatMeasurement(agentRuntimeEvaluation.metrics.detection_precision_percent)}</strong></article>
+                <article><span>Recall</span><strong className="ok-text">{formatMeasurement(agentRuntimeEvaluation.metrics.detection_recall_percent)}</strong></article>
+                <article><span>False-positive rate</span><strong className="warn-text">{formatMeasurement(agentRuntimeEvaluation.metrics.false_positive_rate_percent)}</strong></article>
+              </div>
+              <p className="upload-note">
+                Tool reliability: {formatMeasurement(agentRuntimeEvaluation.metrics.tool_reliability_percent)}. Resource and remediation metrics remain unavailable until AEGISAI records that evidence; missing evidence is not treated as zero risk.
+              </p>
+            </div>
+          ) : null}
 
           {agentActionSummary?.recent_actions.length ? (
             <div className="agent-action-history">

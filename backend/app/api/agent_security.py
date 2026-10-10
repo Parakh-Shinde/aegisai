@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Annotated, Literal, cast
 from uuid import uuid4
 
@@ -16,7 +17,12 @@ from app.core.security import (
     require_api_key,
     validate_identifier,
 )
-from app.db.models import AgentActionRecord, AISystemProfileRecord, UserRole
+from app.db.models import (
+    AgentActionRecord,
+    AgentRuntimeAssessmentRecord,
+    AISystemProfileRecord,
+    UserRole,
+)
 from app.models.agent_security import (
     ActionReviewState,
     ActionType,
@@ -28,6 +34,7 @@ from app.models.agent_security import (
     AgentRuntimeEvaluationCaseResponse,
     AgentRuntimeEvaluationRequest,
     AgentRuntimeEvaluationResponse,
+    AgentRuntimeMetricsResponse,
     AgentSecuritySignalResponse,
 )
 from app.services.agent_runtime_evaluation import (
@@ -36,6 +43,11 @@ from app.services.agent_runtime_evaluation import (
     load_agent_runtime_suite,
 )
 from app.services.agent_security import analyze_agent_action
+from app.services.assessment_metrics import (
+    AssessmentMetrics,
+    GroundTruthCase,
+    calculate_assessment_metrics,
+)
 from app.services.audit import write_audit_log
 
 router = APIRouter(
@@ -337,9 +349,21 @@ def run_agent_runtime_evaluation(
 
     actor = request_actor(db)
     run_id = str(uuid4())
+    started_at = datetime.now(UTC)
+    assessment_started = perf_counter()
     case_responses: list[AgentRuntimeEvaluationCaseResponse] = []
+    ground_truth_cases: list[GroundTruthCase] = []
     for test in suite.tests:
+        case_started = perf_counter()
         analysis = evaluate_agent_runtime_case(test)
+        case_elapsed_ms = round((perf_counter() - case_started) * 1000)
+        ground_truth_cases.append(
+            GroundTruthCase(
+                expected_verdict=test.expected_verdict,
+                actual_verdict=analysis.verdict,
+                elapsed_ms=case_elapsed_ms,
+            )
+        )
         record = AgentActionRecord(
             organization_id=actor.organization_id,
             system_id=system.id,
@@ -350,6 +374,7 @@ def run_agent_runtime_evaluation(
             decision_source="runtime_evaluation",
             evaluation_run_id=run_id,
             evaluation_case_id=test.test_id,
+            evaluation_expected_verdict=test.expected_verdict,
             request_sha256=analysis.request_sha256,
             request_characters=analysis.request_characters,
             verdict=analysis.verdict,
@@ -384,6 +409,30 @@ def run_agent_runtime_evaluation(
             )
         )
     failed_tests = sum(not case.passed for case in case_responses)
+    completed_at = datetime.now(UTC)
+    metrics = calculate_assessment_metrics(
+        ground_truth_cases,
+        planned_tests=len(suite.tests),
+        assessment_duration_ms=round((perf_counter() - assessment_started) * 1000),
+    )
+    assessment = AgentRuntimeAssessmentRecord(
+        id=run_id,
+        organization_id=actor.organization_id,
+        system_id=system.id,
+        created_by_user_id=actor.user_id,
+        suite_name=suite.suite_name,
+        corpus_version=suite.version,
+        corpus_digest=suite.digest,
+        scoring_rule_version=suite.scoring_rule_version,
+        planned_tests=metrics.planned_tests,
+        executed_tests=metrics.executed_tests,
+        skipped_tests=metrics.skipped_tests,
+        unsupported_tests=metrics.unsupported_tests,
+        metrics=metrics.as_dict(),
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+    db.add(assessment)
     write_audit_log(
         db,
         organization_id=actor.organization_id,
@@ -398,6 +447,7 @@ def run_agent_runtime_evaluation(
             "corpus_digest": suite.digest,
             "total_tests": len(case_responses),
             "failed_tests": failed_tests,
+            "executed_tests": metrics.executed_tests,
         },
     )
     db.commit()
@@ -412,7 +462,78 @@ def run_agent_runtime_evaluation(
         passed_tests=len(case_responses) - failed_tests,
         failed_tests=failed_tests,
         evaluation_status="failed" if failed_tests else "passed",
+        metrics=_metrics_to_response(metrics),
         cases=case_responses,
+    )
+
+
+@router.get(
+    "/evaluations/{run_id}",
+    response_model=AgentRuntimeEvaluationResponse,
+)
+def get_agent_runtime_evaluation(
+    run_id: str,
+    db: DBSession,
+) -> AgentRuntimeEvaluationResponse:
+    """Reproduce a saved evaluation report from its persisted run evidence."""
+    validate_identifier(run_id, "run_id")
+    actor = request_actor(db)
+    assessment = db.scalar(
+        select(AgentRuntimeAssessmentRecord).where(
+            AgentRuntimeAssessmentRecord.id == run_id,
+            AgentRuntimeAssessmentRecord.organization_id == actor.organization_id,
+        )
+    )
+    if assessment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Agent runtime assessment not found.",
+        )
+    records = db.scalars(
+        select(AgentActionRecord)
+        .where(
+            AgentActionRecord.organization_id == actor.organization_id,
+            AgentActionRecord.evaluation_run_id == assessment.id,
+        )
+        .order_by(AgentActionRecord.created_at.asc())
+    ).all()
+    cases = [
+        AgentRuntimeEvaluationCaseResponse(
+            test_id=record.evaluation_case_id or "unknown",
+            action_id=record.id,
+            expected_verdict=cast(
+                Literal["allowed", "quarantined", "blocked"],
+                record.evaluation_expected_verdict,
+            ),
+            actual_verdict=cast(
+                Literal["allowed", "quarantined", "blocked"], record.verdict
+            ),
+            passed=record.evaluation_expected_verdict == record.verdict,
+            signals=[
+                AgentSecuritySignalResponse(
+                    code=signal["code"],
+                    severity=cast(Literal["low", "medium", "high"], signal["severity"]),
+                    message=signal["message"],
+                )
+                for signal in record.signals
+            ],
+        )
+        for record in records
+    ]
+    failed_tests = sum(not case.passed for case in cases)
+    return AgentRuntimeEvaluationResponse(
+        run_id=assessment.id,
+        system_id=assessment.system_id,
+        suite_name=assessment.suite_name,
+        corpus_version=assessment.corpus_version,
+        corpus_digest=assessment.corpus_digest,
+        scoring_rule_version=assessment.scoring_rule_version,
+        total_tests=assessment.planned_tests,
+        passed_tests=len(cases) - failed_tests,
+        failed_tests=failed_tests,
+        evaluation_status="failed" if failed_tests else "passed",
+        metrics=AgentRuntimeMetricsResponse.model_validate(assessment.metrics),
+        cases=cases,
     )
 
 
@@ -496,6 +617,10 @@ def _review_state_for_verdict(verdict: str) -> str:
     if verdict == "quarantined":
         return "pending_review"
     return "rejected"
+
+
+def _metrics_to_response(metrics: AssessmentMetrics) -> AgentRuntimeMetricsResponse:
+    return AgentRuntimeMetricsResponse.model_validate(metrics.as_dict())
 
 
 def _enforcement_response(

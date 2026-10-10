@@ -291,6 +291,10 @@ class AgentActionRecord(Base):
         String(96),
         nullable=True,
     )
+    evaluation_expected_verdict: Mapped[str | None] = mapped_column(
+        String(24),
+        nullable=True,
+    )
     request_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     request_characters: Mapped[int] = mapped_column(Integer, nullable=False)
     verdict: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
@@ -307,6 +311,41 @@ class AgentActionRecord(Base):
         DateTime(timezone=True),
         default=utc_now,
         nullable=False,
+    )
+
+
+class AgentRuntimeAssessmentRecord(Base):
+    __tablename__ = "agent_runtime_assessments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    system_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_system_profiles.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    suite_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    corpus_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    corpus_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    scoring_rule_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    planned_tests: Mapped[int] = mapped_column(Integer, nullable=False)
+    executed_tests: Mapped[int] = mapped_column(Integer, nullable=False)
+    skipped_tests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unsupported_tests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    metrics: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
 
 

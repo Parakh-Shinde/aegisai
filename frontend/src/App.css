@@ -703,6 +703,28 @@ textarea:focus {
   margin: 18px 20px 0;
 }
 
+.assessment-metrics {
+  margin: 18px 20px;
+  border: 1px solid rgba(94, 234, 212, 0.2);
+  border-radius: 10px;
+  background: rgba(13, 148, 136, 0.06);
+}
+
+.assessment-metrics .panel-header {
+  padding-bottom: 0;
+}
+
+.assessment-metrics h3 {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.muted-copy {
+  margin: 7px 0 0;
+  color: #9fb0c7;
+  font-size: 0.82rem;
+}
+
 .scan-history {
   display: grid;
   gap: 10px;

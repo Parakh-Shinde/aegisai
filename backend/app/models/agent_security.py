@@ -85,6 +85,36 @@ class AgentRuntimeEvaluationCaseResponse(BaseModel):
     signals: list[AgentSecuritySignalResponse]
 
 
+class MeasurementValueResponse(BaseModel):
+    value: float | None
+    status: Literal["available", "unavailable"]
+    denominator: int | None = None
+    reason: str | None = None
+
+
+class AgentRuntimeMetricsResponse(BaseModel):
+    planned_tests: int
+    executed_tests: int
+    skipped_tests: int
+    unsupported_tests: int
+    true_positives: int
+    false_positives: int
+    false_negatives: int
+    true_negatives: int
+    test_execution_rate_percent: MeasurementValueResponse
+    applicable_test_coverage_percent: MeasurementValueResponse
+    detection_precision_percent: MeasurementValueResponse
+    detection_recall_percent: MeasurementValueResponse
+    false_positive_rate_percent: MeasurementValueResponse
+    evaluation_engine_reliability_percent: MeasurementValueResponse
+    tool_reliability_percent: MeasurementValueResponse
+    mean_time_to_detect_ms: MeasurementValueResponse
+    assessment_duration_ms: MeasurementValueResponse
+    resource_consumption: MeasurementValueResponse
+    remediation_success_rate_percent: MeasurementValueResponse
+    regression_rate_percent: MeasurementValueResponse
+
+
 class AgentRuntimeEvaluationResponse(BaseModel):
     run_id: str
     system_id: str
@@ -96,6 +126,7 @@ class AgentRuntimeEvaluationResponse(BaseModel):
     passed_tests: int
     failed_tests: int
     evaluation_status: Literal["passed", "failed"]
+    metrics: AgentRuntimeMetricsResponse
     cases: list[AgentRuntimeEvaluationCaseResponse]
 
 

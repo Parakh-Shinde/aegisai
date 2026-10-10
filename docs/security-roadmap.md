@@ -19,6 +19,7 @@ This roadmap describes how AEGISAI grows from a local evaluator into a serious A
 | Agent runtime enforcement API | Available; target agents must honor its decision |
 | Agent runtime adversarial evaluation | Available; static policy checks only, no action execution |
 | Agent integration client | Available; external runtime must use it at each protected action |
+| Ground-truth assessment metrics | Available for the controlled agent policy benchmark |
 | CI checks | Available |
 
 ## v11: Lab Operating System
@@ -86,7 +87,18 @@ The integration is available in:
 backend/app/integrations/agent_gateway.py
 ```
 
-## v16: Regression And Baseline Comparison
+## v16: Measurable Assessment Evidence
+
+Goal: distinguish test activity from security effectiveness. Every controlled
+agent-policy evaluation records planned and executed tests, ground-truth
+confusion-matrix counts, metric denominators, duration, corpus provenance, and
+a persisted report snapshot. Metrics without evidence are explicitly marked
+unavailable rather than shown as zero.
+
+The first benchmark covers the static agent-action policy engine only. It does
+not claim real-world scanner, remediation, resource, or external tool results.
+
+## v17: Regression And Baseline Comparison
 
 Goal: compare a new candidate model against previous models.
 
@@ -102,6 +114,19 @@ Existing endpoint:
 ```text
 GET /security-tests/models/compare
 ```
+
+## v18: Industry Tool Adapter Framework
+
+Goal: run approved external AI-security tools in isolated workers and normalize
+their versioned output into AEGISAI evidence records. Initial adapters will
+target Garak, Promptfoo, and Microsoft PyRIT. The platform will store the tool
+version, configuration digest, approved target identity, execution status,
+structured findings, and raw-result digest.
+
+Tools will not run in the main API container, receive production secrets by
+default, or gain unrestricted network access. Each adapter needs an explicit
+target approval, resource limit, timeout, and evidence schema before it can be
+enabled.
 
 ## v15: Campaign Reports
 
