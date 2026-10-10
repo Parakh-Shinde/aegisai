@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup start stop restart logs status doctor config-check migrate backup verify-backup restore encrypt-evidence agent-gateway-demo test lint build release-gate clean
+.PHONY: help setup start stop restart logs status doctor config-check migrate backup verify-backup restore encrypt-evidence agent-gateway-demo promptfoo-run test lint build release-gate clean
 
 help:
 	@echo "AEGISAI local security lab"
@@ -17,6 +17,7 @@ help:
 	@echo "  make restore BACKUP=backups/file.dump CONFIRM_RESTORE=YES  Replace the database from a verified backup"
 	@echo "  make encrypt-evidence  Encrypt legacy evidence after configuring its key"
 	@echo "  make agent-gateway-demo SYSTEM_ID=id  Test the agent runtime integration client"
+	@echo "  make promptfoo-run RUN_ID=id  Run an approved Promptfoo job in the isolated runner"
 	@echo "  make test     Run backend tests in Docker"
 	@echo "  make lint     Run backend lint and frontend lint in Docker"
 	@echo "  make release-gate  Validate the locked evaluation release policy"
@@ -69,6 +70,10 @@ encrypt-evidence:
 agent-gateway-demo:
 	@test -n "$(SYSTEM_ID)" || (echo "Set SYSTEM_ID to an agent-capable AI system ID" >&2; exit 2)
 	docker compose exec --workdir /app api python scripts/agent_gateway_demo.py --system-id "$(SYSTEM_ID)"
+
+promptfoo-run:
+	@test -n "$(RUN_ID)" || (echo "Set RUN_ID to a pending Promptfoo evaluation run ID" >&2; exit 2)
+	docker compose --profile tools run --rm -e RUN_ID="$(RUN_ID)" promptfoo-runner
 
 test:
 	docker compose run --rm --no-deps api pytest /app/tests

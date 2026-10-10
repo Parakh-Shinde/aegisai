@@ -47,6 +47,24 @@ def require_agent_gateway_token(
         )
 
 
+def require_tool_runner_token(
+    x_aegisai_tool_runner_token: str | None = Header(default=None),
+) -> None:
+    """Authenticate the isolated external-tool runner, never a browser client."""
+    expected_token = get_settings().tool_runner_token
+    if not expected_token:
+        # Local lab only. Production configuration rejects a missing token.
+        return
+    if not x_aegisai_tool_runner_token or not hmac.compare_digest(
+        x_aegisai_tool_runner_token,
+        expected_token,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing tool runner token.",
+        )
+
+
 def validate_identifier(value: str, field_name: str) -> str:
     if not SAFE_IDENTIFIER_PATTERN.fullmatch(value):
         raise HTTPException(

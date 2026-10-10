@@ -349,6 +349,126 @@ class AgentRuntimeAssessmentRecord(Base):
     )
 
 
+class ToolEvaluationTargetRecord(Base):
+    __tablename__ = "tool_evaluation_targets"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "name",
+            name="uq_tool_evaluation_targets_org_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    system_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_system_profiles.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(512), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    authorization_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+
+class ToolEvaluationRunRecord(Base):
+    __tablename__ = "tool_evaluation_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    system_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_system_profiles.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    target_id: Mapped[str] = mapped_column(
+        ForeignKey("tool_evaluation_targets.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    tool_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    tool_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    suite_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    config_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    planned_tests: Mapped[int] = mapped_column(Integer, nullable=False)
+    executed_tests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    passed_tests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_tests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_tests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    report_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+
+class ToolEvaluationCaseRecord(Base):
+    __tablename__ = "tool_evaluation_cases"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "external_case_id",
+            name="uq_tool_evaluation_cases_run_external_case",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("tool_evaluation_runs.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    external_case_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    score: Mapped[float | None] = mapped_column(nullable=True)
+    prompt_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assertions: Mapped[list[dict[str, object]]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+
 class SecurityTestResultRecord(Base):
     __tablename__ = "security_test_results"
 

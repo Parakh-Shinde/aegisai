@@ -671,3 +671,9 @@ Built by **Parakh Shinde**.
 Cybersecurity fresher focused on AI Security, Red Teaming, SOC, Threat Detection, and practical security engineering.
 
 GitHub: [Parakh-Shinde](https://github.com/Parakh-Shinde)
+## Real-tool integrations
+
+AEGISAI can run an approved local Ollama model through the isolated Promptfoo
+runner and preserve per-case evidence rather than presenting a simulated scan.
+See [Promptfoo tool runner](docs/promptfoo-tool-runner.md) for the target
+authorization, local configuration, and execution steps.

@@ -9,6 +9,7 @@ from app.core.rate_limit import LoginRateLimiter, RedisLoginRateLimiter  # noqa:
 from app.core.security import (  # noqa: E402
     require_agent_gateway_token,
     require_api_key,
+    require_tool_runner_token,
     validate_identifier,
     validate_local_http_url,
 )
@@ -54,6 +55,20 @@ def test_agent_gateway_token_blocks_missing_or_invalid_token(
         require_agent_gateway_token("wrong-token")
 
     assert require_agent_gateway_token("agent-gateway-test-token") is None
+
+
+def test_tool_runner_token_blocks_missing_or_invalid_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_TOOL_RUNNER_TOKEN", "tool-runner-test-token")
+
+    with pytest.raises(HTTPException):
+        require_tool_runner_token(None)
+
+    with pytest.raises(HTTPException):
+        require_tool_runner_token("wrong-token")
+
+    assert require_tool_runner_token("tool-runner-test-token") is None
 
 
 def test_ollama_url_rejects_remote_hosts_by_default(

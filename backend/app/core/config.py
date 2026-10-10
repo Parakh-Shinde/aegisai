@@ -24,6 +24,7 @@ class Settings:
     max_rag_source_characters: int
     max_agent_action_characters: int
     agent_gateway_token: str | None
+    tool_runner_token: str | None
     agent_enforcement_mode: str
     api_docs_enabled: bool
     model_max_output_tokens: int
@@ -61,6 +62,7 @@ def get_settings() -> Settings:
     redis_url = os.getenv("AEGISAI_REDIS_URL") or None
     async_campaigns = os.getenv("AEGISAI_ASYNC_CAMPAIGNS", "false").lower() == "true"
     agent_gateway_token = os.getenv("AEGISAI_AGENT_GATEWAY_TOKEN") or None
+    tool_runner_token = os.getenv("AEGISAI_TOOL_RUNNER_TOKEN") or None
     agent_enforcement_mode = os.getenv(
         "AEGISAI_AGENT_ENFORCEMENT_MODE",
         "enforce",
@@ -116,6 +118,11 @@ def get_settings() -> Settings:
                 "AEGISAI_AGENT_GATEWAY_TOKEN must be a unique value of at least "
                 "32 characters in production."
             )
+        if not tool_runner_token or len(tool_runner_token) < 32:
+            raise RuntimeError(
+                "AEGISAI_TOOL_RUNNER_TOKEN must be a unique value of at least "
+                "32 characters in production."
+            )
         if agent_enforcement_mode != "enforce":
             raise RuntimeError(
                 "AEGISAI_AGENT_ENFORCEMENT_MODE must be enforce in production."
@@ -162,6 +169,7 @@ def get_settings() -> Settings:
             maximum=131_072,
         ),
         agent_gateway_token=agent_gateway_token,
+        tool_runner_token=tool_runner_token,
         agent_enforcement_mode=agent_enforcement_mode,
         api_docs_enabled=(
             os.getenv(

@@ -22,6 +22,8 @@ from app.api.file_security import router as file_security_router
 from app.api.model_registry import router as model_registry_router
 from app.api.rag_security import router as rag_security_router
 from app.api.security_tests import router as security_tests_router
+from app.api.tool_evaluations import router as tool_evaluations_router
+from app.api.tool_evaluations import runner_router as tool_runner_router
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.db import models as db_models  # noqa: F401
@@ -162,6 +164,8 @@ app.include_router(auth_router)
 app.include_router(file_security_router)
 app.include_router(rag_security_router)
 app.include_router(security_tests_router)
+app.include_router(tool_evaluations_router)
+app.include_router(tool_runner_router)
 
 
 @app.get("/")
