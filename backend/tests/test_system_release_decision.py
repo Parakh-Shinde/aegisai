@@ -1,9 +1,12 @@
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-from app.api.ai_systems import get_ai_system_release_decision  # noqa: E402
+from app.api.ai_systems import (  # noqa: E402
+    _apply_evidence_freshness,
+    get_ai_system_release_decision,
+)
 from app.core.auth import ACTOR_SESSION_KEY, Actor  # noqa: E402
 from app.db.models import (  # noqa: E402
     AISystemProfileRecord,
@@ -15,6 +18,7 @@ from app.db.models import (  # noqa: E402
     User,
     UserRole,
 )
+from app.models.ai_system import SystemReleaseEvidenceResponse  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -43,6 +47,8 @@ def test_unified_release_decision_passes_only_with_linked_evidence() -> None:
             data_classification="internal",
             input_modalities=["text"],
             capabilities=[],
+            created_at=now - timedelta(minutes=1),
+            updated_at=now - timedelta(minutes=1),
         )
         target = ToolEvaluationTargetRecord(
             id="target-1",
@@ -117,3 +123,29 @@ def test_unified_release_decision_passes_only_with_linked_evidence() -> None:
     }
     assert decision.evidence[1].status == "pass"
     assert decision.evidence[2].status == "pass"
+
+
+def test_evidence_older_than_profile_or_policy_window_requires_retest() -> None:
+    now = datetime.now(UTC)
+    evidence = [
+        SystemReleaseEvidenceResponse(
+            source="external_tool_evaluation",
+            status="pass",
+            summary="Completed with zero failed tests.",
+            evidence_count=1,
+            evidence_ids=["run-1"],
+            latest_evidence_at=now - timedelta(hours=2),
+        )
+    ]
+
+    stale_sources = _apply_evidence_freshness(
+        evidence,
+        profile_updated_at=now - timedelta(hours=3),
+        now=now,
+        max_age_hours=1,
+    )
+
+    assert stale_sources == ["external_tool_evaluation"]
+    assert evidence[0].status == "manual_review_required"
+    assert evidence[0].retest_required
+    assert "older than 1 hour" in evidence[0].summary

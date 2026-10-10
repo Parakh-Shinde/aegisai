@@ -17,6 +17,13 @@ Each evidence source is `pass`, `manual_review_required`, `fail`, or
 `manual_review_required`; it is never treated as a pass. The overall decision
 is the highest-severity applicable evidence status.
 
+Passing evidence is also checked for freshness. The default maximum age is 168
+hours (7 days), configured with `AEGISAI_RELEASE_EVIDENCE_MAX_AGE_HOURS`.
+Evidence becomes stale, and the overall decision requires manual review, when
+it is older than that limit or when the AI system profile changed after the
+evidence was created. A newly approved model target also requires its own
+completed external-tool evaluation.
+
 Example:
 
 ```bash

@@ -103,6 +103,8 @@ class SystemReleaseEvidenceResponse(BaseModel):
     summary: str
     evidence_count: int = Field(ge=0)
     evidence_ids: list[str] = Field(default_factory=list)
+    latest_evidence_at: datetime | None = None
+    retest_required: bool = False
 
 
 class AISystemReleaseDecisionResponse(BaseModel):
@@ -111,5 +113,7 @@ class AISystemReleaseDecisionResponse(BaseModel):
     decision: SystemReleaseDecision
     reason: str
     generated_at: datetime
+    evidence_max_age_hours: int = Field(ge=1)
+    stale_evidence_sources: list[str] = Field(default_factory=list)
     evidence: list[SystemReleaseEvidenceResponse]
     coverage_limitations: list[str]

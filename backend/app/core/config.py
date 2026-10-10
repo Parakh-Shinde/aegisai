@@ -36,6 +36,7 @@ class Settings:
     ocr_runner_url: str
     ocr_runner_token: str | None
     ocr_timeout_seconds: int
+    release_evidence_max_age_hours: int
 
     @property
     def is_production(self) -> bool:
@@ -218,6 +219,12 @@ def get_settings() -> Settings:
             default=20,
             minimum=5,
             maximum=60,
+        ),
+        release_evidence_max_age_hours=_bounded_int_env(
+            "AEGISAI_RELEASE_EVIDENCE_MAX_AGE_HOURS",
+            default=168,
+            minimum=1,
+            maximum=8_760,
         ),
     )
 

@@ -81,6 +81,8 @@ type SystemReleaseEvidence = {
   summary: string;
   evidence_count: number;
   evidence_ids: string[];
+  latest_evidence_at: string | null;
+  retest_required: boolean;
 };
 
 type AISystemReleaseDecision = {
@@ -89,6 +91,8 @@ type AISystemReleaseDecision = {
   decision: "pass" | "manual_review_required" | "fail";
   reason: string;
   generated_at: string;
+  evidence_max_age_hours: number;
+  stale_evidence_sources: string[];
   evidence: SystemReleaseEvidence[];
   coverage_limitations: string[];
 };
@@ -1550,6 +1554,12 @@ export default function App() {
                         {systemReleaseDecision.decision.replaceAll("_", " ")}
                       </strong>
                       <p>{systemReleaseDecision.reason}</p>
+                      <p>
+                        Evidence expires after {systemReleaseDecision.evidence_max_age_hours} hour(s).
+                        {systemReleaseDecision.stale_evidence_sources.length > 0
+                          ? ` Retest required: ${systemReleaseDecision.stale_evidence_sources.join(", ")}.`
+                          : " Linked evidence is currently fresh."}
+                      </p>
                       <div className="coverage-pack-list">
                         {systemReleaseDecision.evidence.map((item) => (
                           <div className="coverage-pack" key={item.source}>
@@ -1559,6 +1569,9 @@ export default function App() {
                               </span>
                               <h3>{item.source.replaceAll("_", " ")}</h3>
                               <p>{item.summary}</p>
+                              {item.latest_evidence_at ? (
+                                <p>Latest evidence: {new Date(item.latest_evidence_at).toLocaleString()}</p>
+                              ) : null}
                             </div>
                             <span className="coverage-category">
                               {item.evidence_count} evidence item(s)

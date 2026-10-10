@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.security_tests import build_release_gate_response
 from app.core.auth import bind_request_actor, request_actor, require_roles
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.db.models import (
@@ -82,6 +83,14 @@ def _evidence(
     summary: str,
     records: Sequence[object],
 ) -> SystemReleaseEvidenceResponse:
+    timestamps = [
+        _as_utc(timestamp)
+        for record in records
+        for timestamp in [
+            getattr(record, "completed_at", None) or getattr(record, "created_at", None)
+        ]
+        if timestamp is not None
+    ]
     return SystemReleaseEvidenceResponse(
         source=source,
         status=status_value,
@@ -91,6 +100,7 @@ def _evidence(
             str(getattr(record, "id", getattr(record, "test_id", "unknown")))
             for record in records[:5]
         ],
+        latest_evidence_at=max(timestamps) if timestamps else None,
     )
 
 
@@ -102,6 +112,40 @@ def _decision_from_evidence(
     if any(item.status == "manual_review_required" for item in evidence):
         return "manual_review_required"
     return "pass"
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _apply_evidence_freshness(
+    evidence: list[SystemReleaseEvidenceResponse],
+    *,
+    profile_updated_at: datetime,
+    now: datetime,
+    max_age_hours: int,
+) -> list[str]:
+    """Downgrade only passing, applicable evidence that is no longer current."""
+    cutoff = now - timedelta(hours=max_age_hours)
+    normalized_profile_updated_at = _as_utc(profile_updated_at)
+    stale_sources: list[str] = []
+    for item in evidence:
+        if item.status != "pass" or item.source == "model_target":
+            continue
+        if item.latest_evidence_at is None:
+            stale_reason = "the latest evidence timestamp is unavailable"
+        elif item.latest_evidence_at < normalized_profile_updated_at:
+            stale_reason = "the AI system profile changed after this evidence"
+        elif item.latest_evidence_at < cutoff:
+            stale_reason = f"evidence is older than {max_age_hours} hour(s)"
+        else:
+            continue
+
+        item.status = "manual_review_required"
+        item.retest_required = True
+        item.summary = f"{item.summary} Retest required because {stale_reason}."
+        stale_sources.append(item.source)
+    return stale_sources
 
 
 @router.post(
@@ -358,31 +402,49 @@ def get_ai_system_release_decision(
             )
         ).all()
     )
-    completed_tool_runs = [run for run in tool_runs if run.status == "completed"]
-    if not completed_tool_runs:
+    completed_runs_by_target: dict[str, ToolEvaluationRunRecord] = {}
+    for run in tool_runs:
+        if run.status == "completed":
+            completed_runs_by_target.setdefault(run.target_id, run)
+    targets_without_completed_run = [
+        target for target in targets if target.id not in completed_runs_by_target
+    ]
+    latest_tool_runs = [
+        completed_runs_by_target[target.id]
+        for target in targets
+        if target.id in completed_runs_by_target
+    ]
+    if not latest_tool_runs or targets_without_completed_run:
+        missing_targets = len(targets_without_completed_run)
         evidence.append(
             _evidence(
                 "external_tool_evaluation",
                 "manual_review_required",
-                "No completed authorized external-tool evaluation is linked "
-                "to this system.",
+                (
+                    "No completed authorized external-tool evaluation is "
+                    "linked to this system."
+                    if not latest_tool_runs
+                    else f"{missing_targets} approved model target(s) need a completed "
+                    "external-tool evaluation."
+                ),
                 tool_runs,
             )
         )
     else:
-        latest_tool_run = completed_tool_runs[0]
+        failed_tool_runs = [run for run in latest_tool_runs if run.failed_tests > 0]
         tool_status: EvidenceStatus = (
-            "pass" if latest_tool_run.failed_tests == 0 else "manual_review_required"
+            "pass" if not failed_tool_runs else "manual_review_required"
         )
         evidence.append(
             _evidence(
                 "external_tool_evaluation",
                 tool_status,
                 (
-                    f"Latest {latest_tool_run.tool_name} run completed with "
-                    f"{latest_tool_run.failed_tests} failed test(s)."
+                    f"Latest completed runs for {len(latest_tool_runs)} target(s) "
+                    f"contain {sum(run.failed_tests for run in latest_tool_runs)} "
+                    "failed test(s)."
                 ),
-                [latest_tool_run],
+                latest_tool_runs,
             )
         )
 
@@ -523,6 +585,14 @@ def get_ai_system_release_decision(
             )
         )
 
+    now = datetime.now(UTC)
+    max_age_hours = get_settings().release_evidence_max_age_hours
+    stale_sources = _apply_evidence_freshness(
+        evidence,
+        profile_updated_at=system.updated_at,
+        now=now,
+        max_age_hours=max_age_hours,
+    )
     coverage = build_coverage_plan(
         input_modalities=set(system.input_modalities),
         capabilities=set(system.capabilities),
@@ -550,7 +620,9 @@ def get_ai_system_release_decision(
         profile_version=system.profile_version,
         decision=decision,
         reason=reason,
-        generated_at=datetime.now(UTC),
+        generated_at=now,
+        evidence_max_age_hours=max_age_hours,
+        stale_evidence_sources=stale_sources,
         evidence=evidence,
         coverage_limitations=limitations,
     )

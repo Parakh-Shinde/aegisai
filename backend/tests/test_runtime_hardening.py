@@ -44,6 +44,15 @@ def test_default_trusted_hosts_include_internal_tool_runner_service(
     assert "api" in get_settings().trusted_hosts
 
 
+def test_release_evidence_age_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AEGISAI_RELEASE_EVIDENCE_MAX_AGE_HOURS", "24")
+    assert get_settings().release_evidence_max_age_hours == 24
+
+    monkeypatch.setenv("AEGISAI_RELEASE_EVIDENCE_MAX_AGE_HOURS", "0")
+    with pytest.raises(RuntimeError, match="RELEASE_EVIDENCE_MAX_AGE_HOURS"):
+        get_settings()
+
+
 def test_production_requires_redis_and_async_campaigns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
