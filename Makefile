@@ -68,7 +68,7 @@ encrypt-evidence:
 
 agent-gateway-demo:
 	@test -n "$(SYSTEM_ID)" || (echo "Set SYSTEM_ID to an agent-capable AI system ID" >&2; exit 2)
-	docker compose exec api python scripts/agent_gateway_demo.py --system-id "$(SYSTEM_ID)"
+	docker compose exec --workdir /app api python scripts/agent_gateway_demo.py --system-id "$(SYSTEM_ID)"
 
 test:
 	docker compose run --rm --no-deps api pytest /app/tests
