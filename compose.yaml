@@ -64,9 +64,16 @@ services:
       AEGISAI_MODEL_MAX_CONCURRENCY: ${AEGISAI_MODEL_MAX_CONCURRENCY:-2}
       AEGISAI_REDIS_URL: ${AEGISAI_REDIS_URL:-redis://redis:6379/0}
       AEGISAI_ASYNC_CAMPAIGNS: ${AEGISAI_ASYNC_CAMPAIGNS:-false}
+      AEGISAI_OCR_ENABLED: ${AEGISAI_OCR_ENABLED:-false}
+      AEGISAI_OCR_RUNNER_URL: http://ocr-runner:8090
+      AEGISAI_OCR_RUNNER_TOKEN: ${AEGISAI_OCR_RUNNER_TOKEN:-}
+      AEGISAI_OCR_TIMEOUT_SECONDS: ${AEGISAI_OCR_TIMEOUT_SECONDS:-20}
       AEGISAI_BOOTSTRAP_TOKEN: ${AEGISAI_BOOTSTRAP_TOKEN:-}
     extra_hosts:
       - host.docker.internal:host-gateway
+    networks:
+      - default
+      - ocr-sandbox
     ports:
       - 127.0.0.1:8000:8000
     depends_on:
@@ -162,6 +169,36 @@ services:
     cap_drop:
       - ALL
 
+  ocr-runner:
+    build:
+      context: ./tools/ocr-runner
+    environment:
+      AEGISAI_OCR_RUNNER_TOKEN: ${AEGISAI_OCR_RUNNER_TOKEN:-}
+    networks:
+      - ocr-sandbox
+    profiles:
+      - ocr
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8090/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 96
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
   web:
     build:
       context: ./frontend
@@ -194,3 +231,7 @@ services:
 volumes:
   aegisai-postgres:
   aegisai-redis:
+
+networks:
+  ocr-sandbox:
+    internal: true

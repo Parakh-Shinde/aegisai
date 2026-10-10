@@ -32,6 +32,10 @@ class Settings:
     model_max_concurrency: int
     redis_url: str | None
     async_campaigns: bool
+    ocr_enabled: bool
+    ocr_runner_url: str
+    ocr_runner_token: str | None
+    ocr_timeout_seconds: int
 
     @property
     def is_production(self) -> bool:
@@ -67,6 +71,8 @@ def get_settings() -> Settings:
         "AEGISAI_AGENT_ENFORCEMENT_MODE",
         "enforce",
     ).lower()
+    ocr_enabled = os.getenv("AEGISAI_OCR_ENABLED", "false").lower() == "true"
+    ocr_runner_token = os.getenv("AEGISAI_OCR_RUNNER_TOKEN") or None
 
     if agent_enforcement_mode not in {"enforce", "observe"}:
         raise RuntimeError(
@@ -126,6 +132,11 @@ def get_settings() -> Settings:
         if agent_enforcement_mode != "enforce":
             raise RuntimeError(
                 "AEGISAI_AGENT_ENFORCEMENT_MODE must be enforce in production."
+            )
+        if ocr_enabled and (not ocr_runner_token or len(ocr_runner_token) < 32):
+            raise RuntimeError(
+                "AEGISAI_OCR_RUNNER_TOKEN must be a unique value of at least 32 "
+                "characters when OCR is enabled in production."
             )
 
     return Settings(
@@ -199,6 +210,15 @@ def get_settings() -> Settings:
         ),
         redis_url=redis_url,
         async_campaigns=async_campaigns,
+        ocr_enabled=ocr_enabled,
+        ocr_runner_url=os.getenv("AEGISAI_OCR_RUNNER_URL", "http://ocr-runner:8090"),
+        ocr_runner_token=ocr_runner_token,
+        ocr_timeout_seconds=_bounded_int_env(
+            "AEGISAI_OCR_TIMEOUT_SECONDS",
+            default=20,
+            minimum=5,
+            maximum=60,
+        ),
     )
 
 

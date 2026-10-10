@@ -189,6 +189,14 @@ class FileSecurityScanRecord(Base):
         nullable=False,
     )
     recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    ocr_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    ocr_text_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ocr_text_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ocr_text_characters: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ocr_signals: Mapped[list[dict[str, str]] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

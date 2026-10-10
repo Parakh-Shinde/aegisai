@@ -30,3 +30,18 @@ class FileSecurityScanSummary(BaseModel):
     quarantined: int
     blocked: int
     recent_scans: list[FileSecurityScanResponse] = Field(default_factory=list)
+
+
+class OCRSignalResponse(BaseModel):
+    code: str
+    severity: Literal["low", "medium", "high"]
+    message: str
+
+
+class OCRExtractionResponse(BaseModel):
+    scan: FileSecurityScanResponse
+    extraction_status: Literal["completed", "quarantined", "not_run"]
+    extracted_text_sha256: str | None
+    extracted_text_characters: int | None
+    extracted_text: str | None
+    signals: list[OCRSignalResponse] = Field(default_factory=list)
