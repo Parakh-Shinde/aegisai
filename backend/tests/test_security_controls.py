@@ -7,6 +7,7 @@ from app.core.config import DEVELOPMENT_JWT_SECRET, get_settings  # noqa: E402
 from app.core.evidence import protect_evidence, reveal_evidence  # noqa: E402
 from app.core.rate_limit import LoginRateLimiter, RedisLoginRateLimiter  # noqa: E402
 from app.core.security import (  # noqa: E402
+    require_agent_gateway_token,
     require_api_key,
     validate_identifier,
     validate_local_http_url,
@@ -39,6 +40,20 @@ def test_api_key_blocks_missing_or_invalid_key(monkeypatch: pytest.MonkeyPatch) 
         require_api_key("wrong-key")
 
     assert require_api_key("expected-key") is None
+
+
+def test_agent_gateway_token_blocks_missing_or_invalid_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_AGENT_GATEWAY_TOKEN", "agent-gateway-test-token")
+
+    with pytest.raises(HTTPException):
+        require_agent_gateway_token(None)
+
+    with pytest.raises(HTTPException):
+        require_agent_gateway_token("wrong-token")
+
+    assert require_agent_gateway_token("agent-gateway-test-token") is None
 
 
 def test_ollama_url_rejects_remote_hosts_by_default(

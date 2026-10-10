@@ -242,6 +242,14 @@ class RAGSourceRecord(Base):
 
 class AgentActionRecord(Base):
     __tablename__ = "agent_action_inspections"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "system_id",
+            "idempotency_key",
+            name="uq_agent_actions_org_system_idempotency",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(
@@ -265,6 +273,15 @@ class AgentActionRecord(Base):
     action_type: Mapped[str] = mapped_column(String(40), nullable=False)
     tool_name: Mapped[str] = mapped_column(String(120), nullable=False)
     target: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    decision_source: Mapped[str] = mapped_column(
+        String(24),
+        default="inspection",
+        nullable=False,
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
     request_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     request_characters: Mapped[int] = mapped_column(Integer, nullable=False)
     verdict: Mapped[str] = mapped_column(String(24), index=True, nullable=False)

@@ -2,14 +2,19 @@ import json
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import Select, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import bind_request_actor, request_actor, require_roles
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.security import require_api_key, validate_identifier
+from app.core.security import (
+    require_agent_gateway_token,
+    require_api_key,
+    validate_identifier,
+)
 from app.db.models import AgentActionRecord, AISystemProfileRecord, UserRole
 from app.models.agent_security import (
     ActionReviewState,
@@ -18,6 +23,7 @@ from app.models.agent_security import (
     AgentActionResponse,
     AgentActionReviewRequest,
     AgentActionSummary,
+    AgentEnforcementResponse,
     AgentSecuritySignalResponse,
 )
 from app.services.agent_security import analyze_agent_action
@@ -27,6 +33,11 @@ router = APIRouter(
     prefix="/agent-security",
     tags=["Agent Security"],
     dependencies=[Depends(require_api_key), Depends(bind_request_actor)],
+)
+enforcement_router = APIRouter(
+    prefix="/agent-security",
+    tags=["Agent Security Enforcement"],
+    dependencies=[Depends(require_agent_gateway_token)],
 )
 DBSession = Annotated[Session, Depends(get_db)]
 
@@ -53,6 +64,20 @@ def require_tenant_agent_system(db: Session, system_id: str) -> AISystemProfileR
         raise HTTPException(
             status_code=409,
             detail="Agent action inspection requires an agent-capable AI system.",
+        )
+    return record
+
+
+def require_agent_system(db: Session, system_id: str) -> AISystemProfileRecord:
+    record = db.get(AISystemProfileRecord, system_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="AI system profile not found.")
+    if not set(record.capabilities).intersection(
+        {"agent_tools", "browser", "external_apis", "code_execution"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Agent action enforcement requires an agent-capable AI system.",
         )
     return record
 
@@ -115,9 +140,7 @@ def inspect_agent_action(
         page_excerpt=request.page_excerpt,
     )
     actor = request_actor(db)
-    review_state = (
-        "auto_approved" if analysis.verdict == "allowed" else "pending_review"
-    )
+    review_state = _review_state_for_verdict(analysis.verdict)
     record = AgentActionRecord(
         organization_id=actor.organization_id,
         system_id=request.system_id,
@@ -125,6 +148,7 @@ def inspect_agent_action(
         action_type=request.action_type,
         tool_name=request.tool_name,
         target=request.target,
+        decision_source="inspection",
         request_sha256=analysis.request_sha256,
         request_characters=analysis.request_characters,
         verdict=analysis.verdict,
@@ -158,6 +182,127 @@ def inspect_agent_action(
     db.commit()
     db.refresh(record)
     return action_to_response(record)
+
+
+@enforcement_router.post(
+    "/enforce",
+    response_model=AgentEnforcementResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def enforce_agent_action(
+    request: AgentActionInspectionRequest,
+    db: DBSession,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> AgentEnforcementResponse:
+    settings = get_settings()
+    serialized_request = json.dumps(
+        request.model_dump(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    if len(serialized_request) > settings.max_agent_action_characters:
+        raise HTTPException(
+            status_code=413,
+            detail="Action enforcement request exceeds the configured character limit.",
+        )
+    validate_identifier(request.system_id, "system_id")
+    if idempotency_key is not None:
+        validate_identifier(idempotency_key, "Idempotency-Key")
+    system = require_agent_system(db, request.system_id)
+    analysis = analyze_agent_action(
+        action_type=request.action_type,
+        tool_name=request.tool_name,
+        target=request.target,
+        arguments=request.arguments,
+        page_excerpt=request.page_excerpt,
+    )
+    if idempotency_key is not None:
+        existing = db.scalar(
+            select(AgentActionRecord).where(
+                AgentActionRecord.organization_id == system.organization_id,
+                AgentActionRecord.system_id == system.id,
+                AgentActionRecord.idempotency_key == idempotency_key,
+            )
+        )
+        if existing is not None:
+            if existing.request_sha256 != analysis.request_sha256:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Idempotency-Key was already used for a different action.",
+                )
+            return _enforcement_response(
+                existing,
+                settings.agent_enforcement_mode,
+                idempotent_replay=True,
+            )
+
+    record = AgentActionRecord(
+        organization_id=system.organization_id,
+        system_id=system.id,
+        created_by_user_id=None,
+        action_type=request.action_type,
+        tool_name=request.tool_name,
+        target=request.target,
+        decision_source="enforcement",
+        idempotency_key=idempotency_key,
+        request_sha256=analysis.request_sha256,
+        request_characters=analysis.request_characters,
+        verdict=analysis.verdict,
+        signals=[
+            {
+                "code": signal.code,
+                "severity": signal.severity,
+                "message": signal.message,
+            }
+            for signal in analysis.signals
+        ],
+        recommendation=analysis.recommendation,
+        review_state=_review_state_for_verdict(analysis.verdict),
+    )
+    db.add(record)
+    db.flush()
+    write_audit_log(
+        db,
+        organization_id=system.organization_id,
+        actor_id=None,
+        action="agent_action.enforce",
+        resource_type="agent_action_inspection",
+        resource_id=record.id,
+        details={
+            "system_id": record.system_id,
+            "action_type": record.action_type,
+            "verdict": record.verdict,
+            "enforcement_mode": settings.agent_enforcement_mode,
+        },
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if idempotency_key is None:
+            raise
+        existing = db.scalar(
+            select(AgentActionRecord).where(
+                AgentActionRecord.organization_id == system.organization_id,
+                AgentActionRecord.system_id == system.id,
+                AgentActionRecord.idempotency_key == idempotency_key,
+            )
+        )
+        if existing is None:
+            raise
+        if existing.request_sha256 != analysis.request_sha256:
+            raise HTTPException(
+                status_code=409,
+                detail="Idempotency-Key was already used for a different action.",
+            ) from None
+        return _enforcement_response(
+            existing,
+            settings.agent_enforcement_mode,
+            idempotent_replay=True,
+        )
+    db.refresh(record)
+    return _enforcement_response(record, settings.agent_enforcement_mode)
 
 
 @router.get("/actions", response_model=AgentActionSummary)
@@ -201,6 +346,11 @@ def review_agent_action(
             status_code=409,
             detail="Only actions awaiting review can be decided.",
         )
+    if record.verdict == "blocked":
+        raise HTTPException(
+            status_code=409,
+            detail="Blocked actions cannot be approved by exception.",
+        )
     actor = request_actor(db)
     if request.decision == "approve_exception" and actor.role != UserRole.ADMIN:
         raise HTTPException(
@@ -227,3 +377,32 @@ def review_agent_action(
     db.commit()
     db.refresh(record)
     return action_to_response(record)
+
+
+def _review_state_for_verdict(verdict: str) -> str:
+    if verdict == "allowed":
+        return "auto_approved"
+    if verdict == "quarantined":
+        return "pending_review"
+    return "rejected"
+
+
+def _enforcement_response(
+    record: AgentActionRecord,
+    enforcement_mode: str,
+    *,
+    idempotent_replay: bool = False,
+) -> AgentEnforcementResponse:
+    decision_by_verdict = {
+        "allowed": "allow",
+        "quarantined": "require_review",
+        "blocked": "deny",
+    }
+    decision = decision_by_verdict[record.verdict]
+    return AgentEnforcementResponse(
+        action=action_to_response(record),
+        decision=cast(Literal["allow", "require_review", "deny"], decision),
+        execution_permitted=(decision == "allow" or enforcement_mode == "observe"),
+        enforcement_mode=cast(Literal["enforce", "observe"], enforcement_mode),
+        idempotent_replay=idempotent_replay,
+    )

@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 from fastapi import Header, HTTPException, status
 
+from app.core.config import get_settings
+
 API_KEY_ENV = "AEGISAI_API_KEY"
 MAX_MODEL_NAME_LENGTH = 100
 MAX_PROMPT_LENGTH = 4000
@@ -24,6 +26,24 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key.",
+        )
+
+
+def require_agent_gateway_token(
+    x_aegisai_agent_token: str | None = Header(default=None),
+) -> None:
+    """Authenticate an agent runtime at the pre-action enforcement boundary."""
+    expected_token = get_settings().agent_gateway_token
+    if not expected_token:
+        # Local development only. Production configuration rejects a missing token.
+        return
+    if not x_aegisai_agent_token or not hmac.compare_digest(
+        x_aegisai_agent_token,
+        expected_token,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing agent gateway token.",
         )
 
 

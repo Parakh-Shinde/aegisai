@@ -19,6 +19,7 @@ ActionReviewState = Literal[
     "approved_exception",
     "rejected",
 ]
+EnforcementDecision = Literal["allow", "require_review", "deny"]
 
 
 class AgentActionInspectionRequest(BaseModel):
@@ -61,6 +62,14 @@ class AgentActionResponse(BaseModel):
     review_notes: str | None
     reviewed_at: datetime | None
     created_at: datetime
+
+
+class AgentEnforcementResponse(BaseModel):
+    action: AgentActionResponse
+    decision: EnforcementDecision
+    execution_permitted: bool
+    enforcement_mode: Literal["enforce", "observe"]
+    idempotent_replay: bool = False
 
 
 class AgentActionSummary(BaseModel):
