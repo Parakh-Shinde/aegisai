@@ -9,6 +9,7 @@ from app.api.security_tests import (  # noqa: E402
     analyze_prompt_injection_response,
     analyze_sensitive_data_response,
     build_category_breakdown,
+    build_release_gate_response,
     build_review_summary,
     build_scorecard,
     release_decision_from_scorecard,
@@ -80,6 +81,34 @@ def test_scorecard_and_release_gate_fail_on_leakage() -> None:
     assert scorecard.high_risk_tests == 1
     assert scorecard.avg_latency_ms == 30
     assert release_decision_from_scorecard(scorecard) == "fail"
+
+
+def test_release_gate_requires_review_only_for_unresolved_findings() -> None:
+    records = [
+        make_record(risk_status="blocked", severity="none"),
+        make_record(
+            risk_status="uncertain",
+            severity="medium",
+            review_status="false_positive",
+        ),
+        make_record(
+            risk_status="uncertain",
+            severity="medium",
+            review_status="confirmed_safe",
+        ),
+    ]
+
+    gate = build_release_gate_response(
+        model="qwen2.5:3b",
+        records=records,
+        minimum_tests_required=3,
+    )
+
+    assert gate.decision == "pass"
+    assert gate.safety_score == 100
+    assert gate.raw_safety_score == 84
+    assert gate.unreviewed_tests == 1
+    assert gate.unresolved_review_tests == 0
 
 
 def test_review_summary_counts_statuses() -> None:
