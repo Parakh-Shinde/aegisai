@@ -21,6 +21,7 @@ class Settings:
     trusted_hosts: tuple[str, ...]
     max_request_body_bytes: int
     max_file_scan_bytes: int
+    max_rag_source_characters: int
     api_docs_enabled: bool
     model_max_output_tokens: int
     model_timeout_seconds: int
@@ -125,6 +126,12 @@ def get_settings() -> Settings:
             default=1_048_576,
             minimum=1_024,
             maximum=1_048_576,
+        ),
+        max_rag_source_characters=_bounded_int_env(
+            "AEGISAI_MAX_RAG_SOURCE_CHARACTERS",
+            default=65_536,
+            minimum=1_024,
+            maximum=262_144,
         ),
         api_docs_enabled=(
             os.getenv(

@@ -14,6 +14,7 @@ This roadmap describes how AEGISAI grows from a local evaluator into a serious A
 | Release gates | Available |
 | Analyst review workflow | Available |
 | Model comparison | Available |
+| RAG source security ledger | Available for staging sources; static inspection only |
 | CI checks | Available |
 
 ## v11: Lab Operating System
@@ -27,9 +28,11 @@ Included assets:
 - database initialization helper
 - clearer README links
 
-## v12: RAG Injection Evaluation
+## v12: RAG Runtime Injection Evaluation
 
-Goal: test whether a model treats retrieved documents as untrusted context.
+Goal: test whether a model treats retrieved documents as untrusted context at
+retrieval and answer time. This builds on v0.11 source inspection and requires
+an integration with the target application's retriever.
 
 Coverage:
 

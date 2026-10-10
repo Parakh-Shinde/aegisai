@@ -103,6 +103,37 @@ type FileSecurityScanSummary = {
   recent_scans: FileSecurityScan[];
 };
 
+type RAGSecuritySignal = {
+  code: string;
+  severity: "low" | "medium" | "high";
+  message: string;
+};
+
+type RAGSource = {
+  id: string;
+  system_id: string;
+  source_name: string;
+  source_kind: "staging_text" | "document_extract" | "connector_reference";
+  source_reference: string | null;
+  content_sha256: string;
+  content_characters: number;
+  verdict: "approved" | "quarantined";
+  signals: RAGSecuritySignal[];
+  recommendation: string;
+  review_state: "auto_approved" | "pending_review" | "approved_exception" | "rejected";
+  review_notes: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
+
+type RAGSourceSummary = {
+  total_sources: number;
+  eligible_for_indexing: number;
+  pending_review: number;
+  quarantined: number;
+  recent_sources: RAGSource[];
+};
+
 type SecurityResult = {
   test_id: string;
   created_at: string;
@@ -437,6 +468,11 @@ export default function App() {
   const [scanSummary, setScanSummary] = useState<FileSecurityScanSummary | null>(null);
   const [scanFile, setScanFile] = useState<File | null>(null);
   const [scanSystemId, setScanSystemId] = useState("");
+  const [ragSourceSummary, setRagSourceSummary] = useState<RAGSourceSummary | null>(null);
+  const [ragSystemId, setRagSystemId] = useState("");
+  const [ragSourceName, setRagSourceName] = useState("");
+  const [ragSourceReference, setRagSourceReference] = useState("");
+  const [ragSourceContent, setRagSourceContent] = useState("");
   const [results, setResults] = useState<SecurityResult[]>([]);
   const [suite, setSuite] = useState<SuiteResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SecurityResult | null>(null);
@@ -612,6 +648,43 @@ export default function App() {
       await refreshFileScans();
     } catch (err) {
       setError(err instanceof Error ? err.message : "File security scan failed");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function refreshRagSources() {
+    try {
+      const summary = await apiGet<RAGSourceSummary>("/rag-security/sources");
+      setRagSourceSummary(summary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load RAG source history");
+    }
+  }
+
+  async function submitRagSource(event: FormEvent) {
+    event.preventDefault();
+    if (!ragSystemId || !ragSourceName.trim() || !ragSourceContent.trim()) {
+      setError("Choose a RAG system and provide a source name and staging text.");
+      return;
+    }
+    setError("");
+    setIsLoading(true);
+    try {
+      const result = await apiSend<RAGSource>("/rag-security/sources/inspect", "POST", {
+        system_id: ragSystemId,
+        source_name: ragSourceName.trim(),
+        source_kind: "staging_text",
+        source_reference: ragSourceReference.trim() || null,
+        content: ragSourceContent,
+      });
+      setMessage(`RAG source ${result.verdict}: ${result.source_name}`);
+      setRagSourceName("");
+      setRagSourceReference("");
+      setRagSourceContent("");
+      await refreshRagSources();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "RAG source inspection failed");
     } finally {
       setIsLoading(false);
     }
@@ -1003,6 +1076,11 @@ export default function App() {
         .catch((err: unknown) => {
           setError(err instanceof Error ? err.message : "Failed to load file scan history");
         });
+      void apiGet<RAGSourceSummary>("/rag-security/sources")
+        .then(setRagSourceSummary)
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Failed to load RAG source history");
+        });
     }, 0);
 
     return () => window.clearTimeout(startupTimer);
@@ -1028,6 +1106,7 @@ export default function App() {
           <a href="#testing">Run Tests</a>
           <a href="#ai-systems">AI Systems</a>
           <a href="#file-security">File Security</a>
+          <a href="#rag-security">RAG Security</a>
           <a href="#live">Live Testing</a>
           <a href="#review">Review</a>
           <a href="#findings">Findings</a>
@@ -1367,6 +1446,108 @@ export default function App() {
             </div>
           ) : (
             <p className="empty-state">No file scans yet. Use harmless test files or sanitized staging samples only.</p>
+          )}
+        </section>
+
+        <section className="panel" id="rag-security">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">RAG Source Security Ledger</p>
+              <h2>Inspect Sources Before Manual Indexing</h2>
+            </div>
+          </div>
+
+          <form className="rag-source-form" onSubmit={submitRagSource}>
+            <div className="form-grid">
+              <label>
+                RAG AI system
+                <select value={ragSystemId} onChange={(event) => setRagSystemId(event.target.value)}>
+                  <option value="">Choose a RAG system</option>
+                  {aiSystems.filter((system) => system.capabilities.includes("rag")).map((system) => (
+                    <option key={system.id} value={system.id}>{system.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Source name
+                <input
+                  value={ragSourceName}
+                  maxLength={255}
+                  onChange={(event) => setRagSourceName(event.target.value)}
+                  placeholder="staging-support-policy"
+                />
+              </label>
+              <label>
+                Source reference (optional)
+                <input
+                  value={ragSourceReference}
+                  maxLength={512}
+                  onChange={(event) => setRagSourceReference(event.target.value)}
+                  placeholder="kb://staging/support-policy/v1"
+                />
+              </label>
+            </div>
+            <label className="rag-text-label">
+              Harmless staging source text
+              <textarea
+                value={ragSourceContent}
+                maxLength={65536}
+                onChange={(event) => setRagSourceContent(event.target.value)}
+                placeholder="Paste only authorized staging text. AEGISAI does not index or send it to a model."
+              />
+            </label>
+            <p className="upload-note">
+              This records a hash and risk signals only. It does not fetch links, access connectors, index the source, or control your external RAG system.
+            </p>
+            <div className="runner-actions">
+              <button className="run-button" disabled={isLoading}>
+                {isLoading ? "Inspecting..." : "Inspect RAG Source"}
+              </button>
+              <button className="secondary-button" type="button" onClick={() => void refreshRagSources()}>
+                Refresh Ledger
+              </button>
+            </div>
+          </form>
+
+          <div className="review-mini rag-summary">
+            <article>
+              <span>Total sources</span>
+              <strong>{ragSourceSummary?.total_sources ?? 0}</strong>
+            </article>
+            <article>
+              <span>Eligible for indexing</span>
+              <strong className="ok-text">{ragSourceSummary?.eligible_for_indexing ?? 0}</strong>
+            </article>
+            <article>
+              <span>Pending review</span>
+              <strong className="warn-text">{ragSourceSummary?.pending_review ?? 0}</strong>
+            </article>
+            <article>
+              <span>Quarantined</span>
+              <strong className="bad-text">{ragSourceSummary?.quarantined ?? 0}</strong>
+            </article>
+          </div>
+
+          {ragSourceSummary?.recent_sources.length ? (
+            <div className="rag-source-history">
+              {ragSourceSummary.recent_sources.map((source) => (
+                <article className="rag-source-row" key={source.id}>
+                  <div>
+                    <span className={`badge rag-${source.verdict}`}>{source.verdict}</span>
+                    <h3>{source.source_name}</h3>
+                    <p>{source.content_characters} characters · {source.review_state.replaceAll("_", " ")} · {formatDate(source.created_at)}</p>
+                    {source.signals.map((signal) => (
+                      <p className="scan-signal" key={`${source.id}-${signal.code}`}>
+                        {signal.severity}: {signal.message}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="scan-recommendation">{source.recommendation}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">No RAG sources inspected yet. Start with an authorized staging policy sample.</p>
           )}
         </section>
 

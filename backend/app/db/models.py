@@ -196,6 +196,50 @@ class FileSecurityScanRecord(Base):
     )
 
 
+class RAGSourceRecord(Base):
+    __tablename__ = "rag_sources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    system_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_system_profiles.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_reference: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    content_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    content_characters: Mapped[int] = mapped_column(Integer, nullable=False)
+    verdict: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    signals: Mapped[list[dict[str, str]]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    review_state: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+
 class SecurityTestResultRecord(Base):
     __tablename__ = "security_test_results"
 

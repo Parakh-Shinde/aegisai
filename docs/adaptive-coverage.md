@@ -49,9 +49,11 @@ Currently available packs cover text model behavior and governance:
 Multimodal input security and document/file safety are currently **partial**:
 the File Security Gateway performs non-executing structural checks but does not
 claim OCR-based hidden-text detection, malware-engine scanning, content disarm,
-or dynamic analysis. Other planned packs include RAG poisoning, agent tool
-safety, browser indirect prompt injection, public API abuse resistance, and
-privacy assurance.
+or dynamic analysis. RAG security is also **partial**: the RAG Security Ledger
+quarantines staging sources with common indirect-prompt-injection markers before
+manual indexing, but it does not control an external retriever or connector.
+Other planned packs include agent tool safety, browser indirect prompt
+injection, public API abuse resistance, and privacy assurance.
 
 ## API
 

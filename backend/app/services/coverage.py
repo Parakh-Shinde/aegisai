@@ -98,10 +98,10 @@ def build_coverage_plan(
                 pack_id="rag-injection",
                 title="RAG Poisoning and Retrieval Isolation",
                 category="rag_security",
-                status="planned",
+                status="partial",
                 reason=(
-                    "Retrieved content can inject instructions or expose another "
-                    "data."
+                    "Source inspection detects common indirect-injection markers; "
+                    "retrieval-time isolation and connector enforcement remain needed."
                 ),
             )
         )
