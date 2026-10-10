@@ -134,6 +134,37 @@ type RAGSourceSummary = {
   recent_sources: RAGSource[];
 };
 
+type AgentSecuritySignal = {
+  code: string;
+  severity: "low" | "medium" | "high";
+  message: string;
+};
+
+type AgentAction = {
+  id: string;
+  system_id: string;
+  action_type: "browser_navigation" | "http_request" | "data_export" | "file_operation" | "connector_action" | "shell_command" | "other";
+  tool_name: string;
+  target: string | null;
+  request_sha256: string;
+  request_characters: number;
+  verdict: "allowed" | "quarantined" | "blocked";
+  signals: AgentSecuritySignal[];
+  recommendation: string;
+  review_state: "auto_approved" | "pending_review" | "approved_exception" | "rejected";
+  review_notes: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
+
+type AgentActionSummary = {
+  total_actions: number;
+  allowed: number;
+  pending_review: number;
+  blocked: number;
+  recent_actions: AgentAction[];
+};
+
 type SecurityResult = {
   test_id: string;
   created_at: string;
@@ -473,6 +504,13 @@ export default function App() {
   const [ragSourceName, setRagSourceName] = useState("");
   const [ragSourceReference, setRagSourceReference] = useState("");
   const [ragSourceContent, setRagSourceContent] = useState("");
+  const [agentActionSummary, setAgentActionSummary] = useState<AgentActionSummary | null>(null);
+  const [agentSystemId, setAgentSystemId] = useState("");
+  const [agentActionType, setAgentActionType] = useState<AgentAction["action_type"]>("browser_navigation");
+  const [agentToolName, setAgentToolName] = useState("knowledge_browser");
+  const [agentTarget, setAgentTarget] = useState("https://docs.example.com/help");
+  const [agentArguments, setAgentArguments] = useState('{"query":"approved support policy"}');
+  const [agentPageExcerpt, setAgentPageExcerpt] = useState("Approved staging support documentation.");
   const [results, setResults] = useState<SecurityResult[]>([]);
   const [suite, setSuite] = useState<SuiteResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SecurityResult | null>(null);
@@ -685,6 +723,48 @@ export default function App() {
       await refreshRagSources();
     } catch (err) {
       setError(err instanceof Error ? err.message : "RAG source inspection failed");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function refreshAgentActions() {
+    try {
+      const summary = await apiGet<AgentActionSummary>("/agent-security/actions");
+      setAgentActionSummary(summary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load agent action history");
+    }
+  }
+
+  async function submitAgentAction(event: FormEvent) {
+    event.preventDefault();
+    if (!agentSystemId || !agentToolName.trim()) {
+      setError("Choose an agent-capable system and provide a tool name.");
+      return;
+    }
+    let parsedArguments: Record<string, unknown>;
+    try {
+      parsedArguments = JSON.parse(agentArguments) as Record<string, unknown>;
+    } catch {
+      setError("Arguments must be valid JSON, for example: {\"query\":\"policy\"}");
+      return;
+    }
+    setError("");
+    setIsLoading(true);
+    try {
+      const result = await apiSend<AgentAction>("/agent-security/actions/inspect", "POST", {
+        system_id: agentSystemId,
+        action_type: agentActionType,
+        tool_name: agentToolName.trim(),
+        target: agentTarget.trim() || null,
+        arguments: parsedArguments,
+        page_excerpt: agentPageExcerpt.trim() || null,
+      });
+      setMessage(`Agent action ${result.verdict}: ${result.tool_name}`);
+      await refreshAgentActions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Agent action inspection failed");
     } finally {
       setIsLoading(false);
     }
@@ -1081,6 +1161,11 @@ export default function App() {
         .catch((err: unknown) => {
           setError(err instanceof Error ? err.message : "Failed to load RAG source history");
         });
+      void apiGet<AgentActionSummary>("/agent-security/actions")
+        .then(setAgentActionSummary)
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Failed to load agent action history");
+        });
     }, 0);
 
     return () => window.clearTimeout(startupTimer);
@@ -1107,6 +1192,7 @@ export default function App() {
           <a href="#ai-systems">AI Systems</a>
           <a href="#file-security">File Security</a>
           <a href="#rag-security">RAG Security</a>
+          <a href="#agent-security">Agent Safety</a>
           <a href="#live">Live Testing</a>
           <a href="#review">Review</a>
           <a href="#findings">Findings</a>
@@ -1548,6 +1634,111 @@ export default function App() {
             </div>
           ) : (
             <p className="empty-state">No RAG sources inspected yet. Start with an authorized staging policy sample.</p>
+          )}
+        </section>
+
+        <section className="panel" id="agent-security">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Agent Action Security Gateway</p>
+              <h2>Inspect Before an Agent Can Act</h2>
+            </div>
+          </div>
+
+          <form className="agent-action-form" onSubmit={submitAgentAction}>
+            <div className="form-grid">
+              <label>
+                Agent-capable AI system
+                <select value={agentSystemId} onChange={(event) => setAgentSystemId(event.target.value)}>
+                  <option value="">Choose an agent system</option>
+                  {aiSystems.filter((system) => system.capabilities.some((capability) => ["agent_tools", "browser", "external_apis", "code_execution"].includes(capability))).map((system) => (
+                    <option key={system.id} value={system.id}>{system.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Proposed action type
+                <select value={agentActionType} onChange={(event) => setAgentActionType(event.target.value as AgentAction["action_type"])}>
+                  <option value="browser_navigation">Browser navigation</option>
+                  <option value="http_request">HTTP request</option>
+                  <option value="connector_action">Connector action</option>
+                  <option value="data_export">Data export</option>
+                  <option value="file_operation">File operation</option>
+                  <option value="shell_command">Shell command</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label>
+                Tool name
+                <input value={agentToolName} maxLength={120} onChange={(event) => setAgentToolName(event.target.value)} />
+              </label>
+              <label>
+                Target (optional for connector/other)
+                <input value={agentTarget} maxLength={512} onChange={(event) => setAgentTarget(event.target.value)} />
+              </label>
+            </div>
+            <div className="form-grid agent-details-grid">
+              <label>
+                Arguments as JSON
+                <textarea value={agentArguments} onChange={(event) => setAgentArguments(event.target.value)} />
+              </label>
+              <label>
+                Browser page excerpt (optional)
+                <textarea value={agentPageExcerpt} maxLength={32768} onChange={(event) => setAgentPageExcerpt(event.target.value)} />
+              </label>
+            </div>
+            <p className="upload-note">
+              AEGISAI does not execute this action, open the URL, resolve DNS, access a connector, or store your arguments or page excerpt.
+            </p>
+            <div className="runner-actions">
+              <button className="run-button" disabled={isLoading}>
+                {isLoading ? "Inspecting..." : "Inspect Proposed Action"}
+              </button>
+              <button className="secondary-button" type="button" onClick={() => void refreshAgentActions()}>
+                Refresh History
+              </button>
+            </div>
+          </form>
+
+          <div className="review-mini agent-action-summary">
+            <article>
+              <span>Total actions</span>
+              <strong>{agentActionSummary?.total_actions ?? 0}</strong>
+            </article>
+            <article>
+              <span>Allowed</span>
+              <strong className="ok-text">{agentActionSummary?.allowed ?? 0}</strong>
+            </article>
+            <article>
+              <span>Pending review</span>
+              <strong className="warn-text">{agentActionSummary?.pending_review ?? 0}</strong>
+            </article>
+            <article>
+              <span>Blocked</span>
+              <strong className="bad-text">{agentActionSummary?.blocked ?? 0}</strong>
+            </article>
+          </div>
+
+          {agentActionSummary?.recent_actions.length ? (
+            <div className="agent-action-history">
+              {agentActionSummary.recent_actions.map((action) => (
+                <article className="agent-action-row" key={action.id}>
+                  <div>
+                    <span className={`badge action-${action.verdict}`}>{action.verdict}</span>
+                    <h3>{action.tool_name}</h3>
+                    <p>{action.action_type.replaceAll("_", " ")} · {action.review_state.replaceAll("_", " ")} · {formatDate(action.created_at)}</p>
+                    {action.signals.map((signal) => (
+                      <p className="scan-signal" key={`${action.id}-${signal.code}`}>
+                        {signal.severity}: {signal.message}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="scan-recommendation">{action.recommendation}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">No proposed actions inspected yet. Start with a harmless staging browser request.</p>
           )}
         </section>
 

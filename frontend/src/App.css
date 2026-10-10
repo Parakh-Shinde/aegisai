@@ -627,6 +627,10 @@ textarea:focus {
   border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
+.agent-action-form {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
 .rag-text-label {
   display: grid;
   gap: 7px;
@@ -695,6 +699,10 @@ textarea:focus {
   margin: 18px 20px 0;
 }
 
+.agent-action-summary {
+  margin: 18px 20px 0;
+}
+
 .scan-history {
   display: grid;
   gap: 10px;
@@ -702,6 +710,12 @@ textarea:focus {
 }
 
 .rag-source-history {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px 20px;
+}
+
+.agent-action-history {
   display: grid;
   gap: 10px;
   padding: 18px 20px 20px;
@@ -727,6 +741,16 @@ textarea:focus {
   background: rgba(2, 6, 23, 0.28);
 }
 
+.agent-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.6fr);
+  gap: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(2, 6, 23, 0.28);
+}
+
 .scan-row .badge {
   margin-bottom: 8px;
 }
@@ -735,11 +759,19 @@ textarea:focus {
   margin-bottom: 8px;
 }
 
+.agent-action-row .badge {
+  margin-bottom: 8px;
+}
+
 .scan-row h3 {
   color: #f8fafc;
 }
 
 .rag-source-row h3 {
+  color: #f8fafc;
+}
+
+.agent-action-row h3 {
   color: #f8fafc;
 }
 
@@ -757,11 +789,22 @@ textarea:focus {
   line-height: 1.45;
 }
 
+.agent-action-row p {
+  margin: 7px 0 0;
+  color: #9fb0c7;
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
 .scan-row .scan-signal {
   color: #fde68a;
 }
 
 .rag-source-row .scan-signal {
+  color: #fde68a;
+}
+
+.agent-action-row .scan-signal {
   color: #fde68a;
 }
 
@@ -794,6 +837,21 @@ textarea:focus {
 .rag-quarantined {
   color: #fde68a;
   background: rgba(245, 158, 11, 0.16);
+}
+
+.action-allowed {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.action-quarantined {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.action-blocked {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.17);
 }
 
 .coverage-summary {
@@ -1328,7 +1386,8 @@ td:nth-child(6) {
   .coverage-workspace,
   .profile-options,
   .scan-history,
-  .rag-source-history {
+  .rag-source-history,
+  .agent-action-history {
     padding-left: 14px;
     padding-right: 14px;
   }
@@ -1338,7 +1397,8 @@ td:nth-child(6) {
   }
 
   .scan-row,
-  .rag-source-row {
+  .rag-source-row,
+  .agent-action-row {
     grid-template-columns: 1fr;
   }
 

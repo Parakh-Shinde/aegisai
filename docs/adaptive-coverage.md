@@ -52,8 +52,10 @@ claim OCR-based hidden-text detection, malware-engine scanning, content disarm,
 or dynamic analysis. RAG security is also **partial**: the RAG Security Ledger
 quarantines staging sources with common indirect-prompt-injection markers before
 manual indexing, but it does not control an external retriever or connector.
-Other planned packs include agent tool safety, browser indirect prompt
-injection, public API abuse resistance, and privacy assurance.
+Agent and browser security are also **partial**: the Agent Action Gateway
+inspects proposed actions and pasted page excerpts without executing tools or
+opening URLs. It does not enforce an external agent runtime. Other planned packs
+include public API abuse resistance and privacy assurance.
 
 ## API
 

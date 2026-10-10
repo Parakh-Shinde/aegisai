@@ -22,6 +22,7 @@ class Settings:
     max_request_body_bytes: int
     max_file_scan_bytes: int
     max_rag_source_characters: int
+    max_agent_action_characters: int
     api_docs_enabled: bool
     model_max_output_tokens: int
     model_timeout_seconds: int
@@ -132,6 +133,12 @@ def get_settings() -> Settings:
             default=65_536,
             minimum=1_024,
             maximum=262_144,
+        ),
+        max_agent_action_characters=_bounded_int_env(
+            "AEGISAI_MAX_AGENT_ACTION_CHARACTERS",
+            default=32_768,
+            minimum=1_024,
+            maximum=131_072,
         ),
         api_docs_enabled=(
             os.getenv(

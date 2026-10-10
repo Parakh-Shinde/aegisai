@@ -111,10 +111,10 @@ def build_coverage_plan(
                 pack_id="agent-tool-safety",
                 title="Agent Tool and Action Safety",
                 category="agent_security",
-                status="planned",
+                status="partial",
                 reason=(
-                    "Tool permissions, arguments, and side effects need safety "
-                    "checks."
+                    "Static action checks cover targets, secrets, and destructive "
+                    "markers; runtime tool enforcement remains needed."
                 ),
             )
         )
@@ -124,10 +124,10 @@ def build_coverage_plan(
                 pack_id="browser-indirect-injection",
                 title="Browser and Indirect Prompt Injection",
                 category="agent_security",
-                status="planned",
+                status="partial",
                 reason=(
-                    "Web content can carry untrusted instructions that manipulate an "
-                    "agent."
+                    "Static browser-excerpt checks are available; live browser "
+                    "isolation and navigation enforcement remain needed."
                 ),
             )
         )

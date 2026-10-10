@@ -15,6 +15,7 @@ This roadmap describes how AEGISAI grows from a local evaluator into a serious A
 | Analyst review workflow | Available |
 | Model comparison | Available |
 | RAG source security ledger | Available for staging sources; static inspection only |
+| Agent action security gateway | Available for staged action proposals; static inspection only |
 | CI checks | Available |
 
 ## v11: Lab Operating System
@@ -48,9 +49,11 @@ Corpus:
 backend/app/corpus/rag_injection_suite.json
 ```
 
-## v13: Agent And Tool Safety Evaluation
+## v13: Agent Runtime And Tool Safety Evaluation
 
-Goal: test models and agents that use tools, connectors, or external content.
+Goal: test models and agents that use tools, connectors, or external content at
+runtime. This builds on v0.12 action inspection and requires integration with
+the target agent runtime.
 
 Coverage:
 

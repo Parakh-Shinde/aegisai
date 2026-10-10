@@ -41,6 +41,10 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > prompt-injection signals before manual indexing. See
 > [RAG Source Security Ledger](docs/rag-source-security.md).
 
+> **Agent action security:** inspect proposed tool actions and browser excerpts
+> before allowing them in an external agent runtime. See
+> [Agent Action Security Gateway](docs/agent-action-security.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**

@@ -9,6 +9,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.adapters import router as adapters_router
+from app.api.agent_security import router as agent_security_router
 from app.api.ai_systems import router as ai_systems_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
@@ -141,6 +142,7 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(model_registry_router)
+app.include_router(agent_security_router)
 app.include_router(ai_systems_router)
 app.include_router(adapters_router)
 app.include_router(audit_router)
