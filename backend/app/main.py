@@ -12,6 +12,7 @@ from app.api.adapters import router as adapters_router
 from app.api.ai_systems import router as ai_systems_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.file_security import router as file_security_router
 from app.api.model_registry import router as model_registry_router
 from app.api.security_tests import router as security_tests_router
 from app.core.config import get_settings
@@ -143,6 +144,7 @@ app.include_router(ai_systems_router)
 app.include_router(adapters_router)
 app.include_router(audit_router)
 app.include_router(auth_router)
+app.include_router(file_security_router)
 app.include_router(security_tests_router)
 
 

@@ -7,7 +7,7 @@ class CoveragePack:
     pack_id: str
     title: str
     category: str
-    status: Literal["available", "planned"]
+    status: Literal["available", "partial", "planned"]
     reason: str
 
 
@@ -16,6 +16,7 @@ class CoveragePlan:
     packs: list[CoveragePack]
     automated_test_coverage_percent: float
     available_packs: int
+    partial_packs: int
     planned_packs: int
 
 
@@ -71,10 +72,10 @@ def build_coverage_plan(
                 pack_id="multimodal-input",
                 title="Multimodal Input Security",
                 category="file_and_media",
-                status="planned",
+                status="partial",
                 reason=(
-                    "Uploaded media can contain hidden instructions, unsafe metadata, "
-                    "or malformed content."
+                    "Static signature, metadata, and plaintext marker checks are "
+                    "available; OCR and malware-engine coverage are still needed."
                 ),
             )
         )
@@ -84,10 +85,10 @@ def build_coverage_plan(
                 pack_id="document-security",
                 title="Document and File Safety",
                 category="file_and_media",
-                status="planned",
+                status="partial",
                 reason=(
-                    "Document parsing, macros, archive limits, and file validation "
-                    "need dedicated tests."
+                    "Static PDF and archive checks are available; deeper document "
+                    "sanitization and malware-engine coverage are still needed."
                 ),
             )
         )
@@ -158,11 +159,17 @@ def build_coverage_plan(
         )
 
     available_packs = sum(pack.status == "available" for pack in packs)
+    partial_packs = sum(pack.status == "partial" for pack in packs)
     planned_packs = sum(pack.status == "planned" for pack in packs)
-    coverage_percent = round((available_packs / len(packs)) * 100, 2) if packs else 0.0
+    coverage_percent = (
+        round(((available_packs + partial_packs * 0.5) / len(packs)) * 100, 2)
+        if packs
+        else 0.0
+    )
     return CoveragePlan(
         packs=packs,
         automated_test_coverage_percent=coverage_percent,
         available_packs=available_packs,
+        partial_packs=partial_packs,
         planned_packs=planned_packs,
     )

@@ -31,14 +31,15 @@ def test_multimodal_public_agent_surfaces_coverage_gaps() -> None:
         data_classification="confidential",
     )
 
+    partial_ids = {pack.pack_id for pack in plan.packs if pack.status == "partial"}
     planned_ids = {pack.pack_id for pack in plan.packs if pack.status == "planned"}
 
     assert plan.available_packs == 4
-    assert plan.planned_packs == 7
-    assert plan.automated_test_coverage_percent == 36.36
+    assert plan.partial_packs == 2
+    assert plan.planned_packs == 5
+    assert plan.automated_test_coverage_percent == 45.45
+    assert partial_ids == {"multimodal-input", "document-security"}
     assert planned_ids == {
-        "multimodal-input",
-        "document-security",
         "rag-injection",
         "agent-tool-safety",
         "browser-indirect-injection",

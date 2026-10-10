@@ -156,6 +156,46 @@ class AISystemProfileRecord(Base):
     )
 
 
+class FileSecurityScanRecord(Base):
+    __tablename__ = "file_security_scans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    system_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ai_system_profiles.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    declared_content_type: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    detected_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    verdict: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    signals: Mapped[list[dict[str, str]]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+
 class SecurityTestResultRecord(Base):
     __tablename__ = "security_test_results"
 

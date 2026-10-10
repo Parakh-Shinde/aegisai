@@ -79,7 +79,7 @@ class CoveragePackResponse(BaseModel):
     pack_id: str
     title: str
     category: str
-    status: Literal["available", "planned"]
+    status: Literal["available", "partial", "planned"]
     reason: str
 
 
@@ -88,5 +88,6 @@ class AISystemCoverageResponse(BaseModel):
     profile_version: int
     automated_test_coverage_percent: float
     available_packs: int
+    partial_packs: int
     planned_packs: int
     packs: list[CoveragePackResponse]

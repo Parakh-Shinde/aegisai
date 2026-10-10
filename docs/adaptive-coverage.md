@@ -26,15 +26,18 @@ update increments its version and records an audit event.
 
 ## Coverage plan
 
-AEGISAI converts the profile into a coverage plan. Each pack is either:
+AEGISAI converts the profile into a coverage plan. Each pack is one of:
 
 - **available** — currently implemented and runnable in AEGISAI; or
+- **partial** — AEGISAI implements a limited safety control but does not claim
+  full attack-surface coverage; or
 - **planned** — a real attack surface that AEGISAI has identified but does not
   yet claim to test automatically.
 
 The coverage percentage is therefore an **automated test-pack coverage
-indicator**, not a guarantee that the system is secure. Planned packs are
-intentional, visible gaps that should block an overconfident release claim.
+indicator**, not a guarantee that the system is secure. Partial and planned
+packs are intentional, visible gaps that should block an overconfident release
+claim.
 
 Currently available packs cover text model behavior and governance:
 
@@ -43,9 +46,12 @@ Currently available packs cover text model behavior and governance:
 - sensitive-data exposure; and
 - analyst evidence review and release gating.
 
-Examples of adaptive planned packs include multimodal input security, document
-and file safety, RAG poisoning, agent tool safety, browser indirect prompt
-injection, public API abuse resistance, and privacy assurance.
+Multimodal input security and document/file safety are currently **partial**:
+the File Security Gateway performs non-executing structural checks but does not
+claim OCR-based hidden-text detection, malware-engine scanning, content disarm,
+or dynamic analysis. Other planned packs include RAG poisoning, agent tool
+safety, browser indirect prompt injection, public API abuse resistance, and
+privacy assurance.
 
 ## API
 

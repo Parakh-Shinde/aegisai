@@ -190,6 +190,7 @@ def get_ai_system_coverage(
         profile_version=record.profile_version,
         automated_test_coverage_percent=plan.automated_test_coverage_percent,
         available_packs=plan.available_packs,
+        partial_packs=plan.partial_packs,
         planned_packs=plan.planned_packs,
         packs=[
             CoveragePackResponse(

@@ -20,6 +20,7 @@ class Settings:
     cors_origins: tuple[str, ...]
     trusted_hosts: tuple[str, ...]
     max_request_body_bytes: int
+    max_file_scan_bytes: int
     api_docs_enabled: bool
     model_max_output_tokens: int
     model_timeout_seconds: int
@@ -115,7 +116,13 @@ def get_settings() -> Settings:
         trusted_hosts=trusted_hosts,
         max_request_body_bytes=_bounded_int_env(
             "AEGISAI_MAX_REQUEST_BODY_BYTES",
-            default=65_536,
+            default=1_048_576,
+            minimum=1_024,
+            maximum=1_048_576,
+        ),
+        max_file_scan_bytes=_bounded_int_env(
+            "AEGISAI_MAX_FILE_SCAN_BYTES",
+            default=1_048_576,
             minimum=1_024,
             maximum=1_048_576,
         ),

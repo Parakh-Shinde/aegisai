@@ -61,7 +61,7 @@ type CoveragePack = {
   pack_id: string;
   title: string;
   category: string;
-  status: "available" | "planned";
+  status: "available" | "partial" | "planned";
   reason: string;
 };
 
@@ -70,8 +70,37 @@ type AISystemCoverage = {
   profile_version: number;
   automated_test_coverage_percent: number;
   available_packs: number;
+  partial_packs: number;
   planned_packs: number;
   packs: CoveragePack[];
+};
+
+type FileSecuritySignal = {
+  code: string;
+  severity: "low" | "medium" | "high";
+  message: string;
+};
+
+type FileSecurityScan = {
+  id: string;
+  system_id: string | null;
+  filename: string;
+  declared_content_type: string | null;
+  detected_type: string;
+  sha256: string;
+  file_size_bytes: number;
+  verdict: "allowed" | "quarantined" | "blocked";
+  signals: FileSecuritySignal[];
+  recommendation: string;
+  created_at: string;
+};
+
+type FileSecurityScanSummary = {
+  total_scans: number;
+  allowed: number;
+  quarantined: number;
+  blocked: number;
+  recent_scans: FileSecurityScan[];
 };
 
 type SecurityResult = {
@@ -405,6 +434,9 @@ export default function App() {
   const [dataClassification, setDataClassification] = useState<AISystemProfile["data_classification"]>("internal");
   const [systemModalities, setSystemModalities] = useState<string[]>(["text"]);
   const [systemCapabilities, setSystemCapabilities] = useState<string[]>([]);
+  const [scanSummary, setScanSummary] = useState<FileSecurityScanSummary | null>(null);
+  const [scanFile, setScanFile] = useState<File | null>(null);
+  const [scanSystemId, setScanSystemId] = useState("");
   const [results, setResults] = useState<SecurityResult[]>([]);
   const [suite, setSuite] = useState<SuiteResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<SecurityResult | null>(null);
@@ -539,6 +571,49 @@ export default function App() {
       setMessage(`Attack-surface coverage created for ${created.name}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create AI system profile");
+    }
+  }
+
+  async function refreshFileScans() {
+    try {
+      const summary = await apiGet<FileSecurityScanSummary>("/file-security/scans");
+      setScanSummary(summary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load file scan history");
+    }
+  }
+
+  async function submitFileScan(event: FormEvent) {
+    event.preventDefault();
+    if (!scanFile) {
+      setError("Choose a file to inspect first.");
+      return;
+    }
+    setError("");
+    setIsLoading(true);
+    try {
+      const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
+      const formData = new FormData();
+      formData.append("file", scanFile);
+      if (scanSystemId) {
+        formData.append("system_id", scanSystemId);
+      }
+      const response = await fetch(`${API_BASE_URL}/file-security/scans`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const result = await response.json() as FileSecurityScan;
+      setMessage(`File scan ${result.verdict}: ${result.filename}`);
+      setScanFile(null);
+      await refreshFileScans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "File security scan failed");
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -923,6 +998,11 @@ export default function App() {
         .catch((err: unknown) => {
           setError(err instanceof Error ? err.message : "Failed to load AI system profiles");
         });
+      void apiGet<FileSecurityScanSummary>("/file-security/scans")
+        .then(setScanSummary)
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Failed to load file scan history");
+        });
     }, 0);
 
     return () => window.clearTimeout(startupTimer);
@@ -947,6 +1027,7 @@ export default function App() {
           <a href="#overview">Overview</a>
           <a href="#testing">Run Tests</a>
           <a href="#ai-systems">AI Systems</a>
+          <a href="#file-security">File Security</a>
           <a href="#live">Live Testing</a>
           <a href="#review">Review</a>
           <a href="#findings">Findings</a>
@@ -1178,6 +1259,10 @@ export default function App() {
                       <strong className="ok-text">{systemCoverage.available_packs}</strong>
                     </article>
                     <article>
+                      <span>Partial coverage</span>
+                      <strong className="warn-text">{systemCoverage.partial_packs}</strong>
+                    </article>
+                    <article>
                       <span>Coverage gaps</span>
                       <strong className="warn-text">{systemCoverage.planned_packs}</strong>
                     </article>
@@ -1199,6 +1284,89 @@ export default function App() {
             </div>
           ) : (
             <p className="empty-state">Create an AI system profile to see its security test coverage and gaps.</p>
+          )}
+        </section>
+
+        <section className="panel" id="file-security">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">File Security Gateway</p>
+              <h2>Inspect Before Model Input</h2>
+            </div>
+          </div>
+
+          <form className="file-scan-form" onSubmit={submitFileScan}>
+            <div className="form-grid">
+              <label>
+                AI system (optional)
+                <select value={scanSystemId} onChange={(event) => setScanSystemId(event.target.value)}>
+                  <option value="">Not linked to a profile</option>
+                  {aiSystems.map((system) => (
+                    <option key={system.id} value={system.id}>{system.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                File to inspect
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.zip,.docx,.xlsx,.pptx,.txt,.csv,.json"
+                  onChange={(event) => setScanFile(event.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
+            <p className="upload-note">
+              AEGISAI performs static checks only. It does not execute, render, or store uploaded file content.
+            </p>
+            <div className="runner-actions">
+              <button className="run-button" disabled={isLoading}>
+                {isLoading ? "Inspecting..." : "Inspect File"}
+              </button>
+              <button className="secondary-button" type="button" onClick={() => void refreshFileScans()}>
+                Refresh History
+              </button>
+            </div>
+          </form>
+
+          <div className="review-mini file-summary">
+            <article>
+              <span>Total scans</span>
+              <strong>{scanSummary?.total_scans ?? 0}</strong>
+            </article>
+            <article>
+              <span>Allowed</span>
+              <strong className="ok-text">{scanSummary?.allowed ?? 0}</strong>
+            </article>
+            <article>
+              <span>Quarantined</span>
+              <strong className="warn-text">{scanSummary?.quarantined ?? 0}</strong>
+            </article>
+            <article>
+              <span>Blocked</span>
+              <strong className="bad-text">{scanSummary?.blocked ?? 0}</strong>
+            </article>
+          </div>
+
+          {scanSummary?.recent_scans.length ? (
+            <div className="scan-history">
+              {scanSummary.recent_scans.map((scan) => (
+                <article className="scan-row" key={scan.id}>
+                  <div>
+                    <span className={`badge scan-${scan.verdict}`}>{scan.verdict}</span>
+                    <h3>{scan.filename}</h3>
+                    <p>{scan.detected_type} · {scan.file_size_bytes} bytes · {formatDate(scan.created_at)}</p>
+                    {scan.signals.map((signal) => (
+                      <p className="scan-signal" key={`${scan.id}-${signal.code}`}>
+                        {signal.severity}: {signal.message}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="scan-recommendation">{scan.recommendation}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">No file scans yet. Use harmless test files or sanitized staging samples only.</p>
           )}
         </section>
 

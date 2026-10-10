@@ -619,6 +619,18 @@ textarea:focus {
   border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
+.file-scan-form {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.upload-note {
+  margin: 0;
+  padding: 0 20px 18px;
+  color: #9fb0c7;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 .profile-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -663,6 +675,66 @@ textarea:focus {
   display: grid;
   gap: 14px;
   padding: 18px 20px 20px;
+}
+
+.file-summary {
+  margin: 18px 20px 0;
+}
+
+.scan-history {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px 20px;
+}
+
+.scan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.6fr);
+  gap: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(2, 6, 23, 0.28);
+}
+
+.scan-row .badge {
+  margin-bottom: 8px;
+}
+
+.scan-row h3 {
+  color: #f8fafc;
+}
+
+.scan-row p {
+  margin: 7px 0 0;
+  color: #9fb0c7;
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.scan-row .scan-signal {
+  color: #fde68a;
+}
+
+.scan-recommendation {
+  margin: 0 !important;
+  border-left: 1px solid rgba(148, 163, 184, 0.14);
+  padding-left: 14px;
+}
+
+.scan-allowed {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.scan-quarantined {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.scan-blocked {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.17);
 }
 
 .coverage-summary {
@@ -717,6 +789,11 @@ textarea:focus {
 .coverage-available {
   color: #bbf7d0;
   background: rgba(34, 197, 94, 0.15);
+}
+
+.coverage-partial {
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.16);
 }
 
 .coverage-planned {
@@ -1190,13 +1267,25 @@ td:nth-child(6) {
   }
 
   .coverage-workspace,
-  .profile-options {
+  .profile-options,
+  .scan-history {
     padding-left: 14px;
     padding-right: 14px;
   }
 
   .coverage-pack {
     flex-direction: column;
+  }
+
+  .scan-row {
+    grid-template-columns: 1fr;
+  }
+
+  .scan-recommendation {
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+    border-left: 0;
+    padding-top: 12px;
+    padding-left: 0;
   }
 
   .coverage-category {

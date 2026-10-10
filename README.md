@@ -33,6 +33,10 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > exposure to explicit available and planned security test packs. See
 > [Adaptive AI Security Coverage](docs/adaptive-coverage.md).
 
+> **File security gateway:** static, non-executing file and document inspection
+> protects staged multimodal model inputs. See
+> [File and Document Security Gateway](docs/file-security.md).
+
 It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
 
 **Test the model. Review the evidence. Decide if it is safe enough to release.**
