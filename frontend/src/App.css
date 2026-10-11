@@ -597,6 +597,28 @@ button:disabled {
   font-size: 0.8rem;
 }
 
+.login-help {
+  margin: -2px 0 2px;
+  color: #9fb0c7;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.login-help strong,
+.mfa-steps strong {
+  color: #ccfbf1;
+}
+
+.mfa-steps {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 22px;
+  color: #cbd5e1;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
 .scope-toggle {
   display: flex !important;
   flex-direction: row !important;

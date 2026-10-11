@@ -579,6 +579,10 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}
           />
         </label>
+        <p className="login-help">
+          First sign-in or MFA not enrolled? Leave this field blank. After signing in, open
+          <strong> Identity </strong> to set up Google Authenticator, Microsoft Authenticator, or Authy.
+        </p>
         <button className="refresh-button" disabled={isSubmitting}>
           {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
@@ -1749,7 +1753,13 @@ export default function App() {
               <form className="identity-card identity-form" onSubmit={activateMfa}>
                 <h3>Finish MFA enrollment</h3>
                 <p className="secret-display">{mfaEnrollment.secret}</p>
-                <p className="muted-copy">Add this key to an authenticator app as a time-based one-time password. Expires {formatDate(mfaEnrollment.expires_at)}.</p>
+                <ol className="mfa-steps">
+                  <li>Open Google Authenticator, Microsoft Authenticator, or Authy on your phone.</li>
+                  <li>Choose <strong>Add account</strong> then <strong>Enter a setup key</strong>.</li>
+                  <li>Name it <strong>AEGISAI</strong>, paste the key above, and select <strong>Time based</strong>.</li>
+                  <li>Enter the current six-digit code from the app below.</li>
+                </ol>
+                <p className="muted-copy">This setup key is shown only once. Keep this page open until activation is complete. Expires {formatDate(mfaEnrollment.expires_at)}.</p>
                 <label>
                   Six-digit code from your app
                   <input inputMode="numeric" minLength={6} maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} required />
