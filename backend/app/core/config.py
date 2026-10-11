@@ -14,6 +14,7 @@ class Settings:
     jwt_issuer: str
     jwt_expiry_minutes: int
     bootstrap_token: str | None
+    allow_local_staging_bootstrap: bool
     local_organization_slug: str
     evidence_encryption_key: str | None
     jwt_audience: str
@@ -82,7 +83,15 @@ def get_settings() -> Settings:
 
     if is_production and not auth_required:
         raise RuntimeError("AEGISAI_AUTH_REQUIRED must be true in production.")
+    allow_local_staging_bootstrap = (
+        os.getenv("AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP", "false").lower()
+        == "true"
+    )
     if is_production:
+        if allow_local_staging_bootstrap:
+            raise RuntimeError(
+                "AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP must be false in production."
+            )
         if not database_url.startswith("postgresql+"):
             raise RuntimeError("DATABASE_URL must use PostgreSQL in production.")
         if (
@@ -149,6 +158,7 @@ def get_settings() -> Settings:
         jwt_audience=os.getenv("AEGISAI_JWT_AUDIENCE", "aegisai-api"),
         jwt_expiry_minutes=max(1, int(os.getenv("AEGISAI_JWT_EXPIRY_MINUTES", "30"))),
         bootstrap_token=os.getenv("AEGISAI_BOOTSTRAP_TOKEN") or None,
+        allow_local_staging_bootstrap=allow_local_staging_bootstrap,
         local_organization_slug=os.getenv(
             "AEGISAI_LOCAL_ORGANIZATION_SLUG",
             "local-lab",

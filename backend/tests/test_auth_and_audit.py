@@ -2,6 +2,10 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
+from app.api.auth import (  # noqa: E402
+    LocalStagingBootstrapRequest,
+    bootstrap_existing_local_lab_administrator,
+)
 from app.core.auth import (  # noqa: E402
     create_access_token,
     get_current_actor,
@@ -88,6 +92,53 @@ def test_local_actor_is_available_from_the_request_db_session(monkeypatch) -> No
         actor = get_current_actor(db, None)
 
         assert request_actor(db) == actor
+
+
+def test_local_staging_bootstrap_replaces_known_development_account(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_ENVIRONMENT", "development")
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP", "true")
+    monkeypatch.setenv("AEGISAI_BOOTSTRAP_TOKEN", "bootstrap-token")
+    monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        organization = Organization(
+            id="organization-1",
+            name="Local AEGISAI Lab",
+            slug="local-lab",
+        )
+        development_user = User(
+            id="user-local",
+            organization_id=organization.id,
+            email="local-analyst@aegisai.local",
+            password_hash=hash_password("local-development-only"),
+            role=UserRole.ADMIN,
+            is_active=True,
+        )
+        db.add_all([organization, development_user])
+        db.commit()
+
+        token = bootstrap_existing_local_lab_administrator(
+            LocalStagingBootstrapRequest(
+                email="admin@example.local",
+                password="long-unique-staging-password",
+            ),
+            db,
+            "bootstrap-token",
+        )
+
+        users = db.scalars(select(User).order_by(User.email)).all()
+
+    assert token.access_token.count(".") == 2
+    assert len(users) == 2
+    assert not next(user for user in users if user.id == "user-local").is_active
+    administrator = next(user for user in users if user.email == "admin@example.local")
+    assert administrator.is_active
+    assert administrator.role == UserRole.ADMIN
 
 
 def test_audit_csv_export_neutralizes_spreadsheet_formulas() -> None:

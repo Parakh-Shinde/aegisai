@@ -59,6 +59,11 @@ class CreateUserRequest(BaseModel):
     role: UserRole
 
 
+class LocalStagingBootstrapRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=12, max_length=256)
+
+
 def validate_email(email: str) -> str:
     normalized = email.strip().lower()
     if not EMAIL_PATTERN.fullmatch(normalized):
@@ -124,6 +129,111 @@ def bootstrap_first_administrator(
 
     return TokenResponse(
         access_token=create_access_token(user),
+        expires_in_seconds=settings.jwt_expiry_minutes * 60,
+    )
+
+
+@router.post("/local-staging-bootstrap", status_code=status.HTTP_201_CREATED)
+def bootstrap_existing_local_lab_administrator(
+    request: LocalStagingBootstrapRequest,
+    db: DBSession,
+    x_bootstrap_token: BootstrapToken,
+) -> TokenResponse:
+    """Safely convert a development local-lab organization to authenticated staging.
+
+    This narrow one-time path exists because development mode automatically
+    creates a known-password local account. It is prohibited in production and
+    disables that account before creating a real administrator.
+    """
+    settings = get_settings()
+    if (
+        not settings.auth_required
+        or settings.is_production
+        or not settings.allow_local_staging_bootstrap
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Local staging bootstrap is not enabled for this environment.",
+        )
+    if not settings.bootstrap_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Configure AEGISAI_BOOTSTRAP_TOKEN first.",
+        )
+    if not x_bootstrap_token or not hmac.compare_digest(
+        x_bootstrap_token,
+        settings.bootstrap_token,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid bootstrap token.",
+        )
+
+    organization = db.scalar(
+        select(Organization).where(
+            Organization.slug == settings.local_organization_slug
+        )
+    )
+    if organization is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The local development organization does not exist.",
+        )
+    if db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.organization_id == organization.id,
+            User.email != "local-analyst@aegisai.local",
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Local staging bootstrap was already completed or is not applicable."
+            ),
+        )
+
+    local_user = db.scalar(
+        select(User).where(
+            User.organization_id == organization.id,
+            User.email == "local-analyst@aegisai.local",
+        )
+    )
+    if local_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The expected local development account was not found.",
+        )
+    email = validate_email(request.email)
+    if db.scalar(select(User).where(User.email == email)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists.",
+        )
+
+    local_user.is_active = False
+    administrator = User(
+        organization_id=organization.id,
+        email=email,
+        password_hash=hash_password(request.password),
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
+    db.add(administrator)
+    db.flush()
+    write_audit_log(
+        db,
+        organization_id=organization.id,
+        actor_id=administrator.id,
+        action="organization.local_staging_bootstrap",
+        resource_type="organization",
+        resource_id=organization.id,
+        details={"administrator_email": email},
+    )
+    db.commit()
+    return TokenResponse(
+        access_token=create_access_token(administrator),
         expires_in_seconds=settings.jwt_expiry_minutes * 60,
     )
 
