@@ -5,7 +5,9 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from app.api.ai_systems import (  # noqa: E402
     _apply_evidence_freshness,
+    decide_release_approval,
     get_ai_system_release_decision,
+    request_release_approval,
 )
 from app.core.auth import ACTOR_SESSION_KEY, Actor  # noqa: E402
 from app.db.models import (  # noqa: E402
@@ -18,7 +20,11 @@ from app.db.models import (  # noqa: E402
     User,
     UserRole,
 )
-from app.models.ai_system import SystemReleaseEvidenceResponse  # noqa: E402
+from app.models.ai_system import (  # noqa: E402
+    ReleaseApprovalDecisionRequest,
+    ReleaseApprovalRequest,
+    SystemReleaseEvidenceResponse,
+)
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -36,6 +42,13 @@ def test_unified_release_decision_passes_only_with_linked_evidence() -> None:
             email="analyst@example.com",
             password_hash="not-used",
             role=UserRole.SECURITY_ANALYST,
+        )
+        approver = User(
+            id="user-2",
+            organization_id=organization.id,
+            email="admin@example.com",
+            password_hash="not-used",
+            role=UserRole.ADMIN,
         )
         system = AISystemProfileRecord(
             id="system-1",
@@ -101,7 +114,7 @@ def test_unified_release_decision_passes_only_with_linked_evidence() -> None:
             )
             for index in range(10)
         ]
-        db.add_all([organization, user, system, target, run, *results])
+        db.add_all([organization, user, approver, system, target, run, *results])
         db.commit()
         db.info[ACTOR_SESSION_KEY] = Actor(
             user_id=user.id,
@@ -112,17 +125,44 @@ def test_unified_release_decision_passes_only_with_linked_evidence() -> None:
 
         decision = get_ai_system_release_decision(system.id, db)
 
-    assert decision.decision == "pass"
-    assert {item.source for item in decision.evidence} == {
-        "model_target",
-        "security_campaigns",
-        "external_tool_evaluation",
-        "file_security",
-        "rag_security",
-        "agent_runtime",
-    }
-    assert decision.evidence[1].status == "pass"
-    assert decision.evidence[2].status == "pass"
+        assert decision.decision == "pass"
+        assert {item.source for item in decision.evidence} == {
+            "model_target",
+            "security_campaigns",
+            "external_tool_evaluation",
+            "file_security",
+            "rag_security",
+            "agent_runtime",
+        }
+        assert decision.evidence[1].status == "pass"
+        assert decision.evidence[2].status == "pass"
+
+        approval = request_release_approval(
+            system.id,
+            ReleaseApprovalRequest(request_notes="Ready for independent approval."),
+            db,
+        )
+        assert approval.approval_status == "pending"
+        assert approval.release_decision == "pass"
+        assert len(approval.decision_digest) == 64
+
+        db.info[ACTOR_SESSION_KEY] = Actor(
+            user_id=approver.id,
+            organization_id=organization.id,
+            role=approver.role,
+            email=approver.email,
+        )
+        approved = decide_release_approval(
+            system.id,
+            approval.id,
+            ReleaseApprovalDecisionRequest(
+                outcome="approved",
+                decision_notes="Independent evidence review completed.",
+            ),
+            db,
+        )
+        assert approved.approval_status == "approved"
+        assert approved.decided_by_user_id == approver.id
 
 
 def test_evidence_older_than_profile_or_policy_window_requires_retest() -> None:

@@ -1,3 +1,5 @@
+import hashlib
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, cast
@@ -17,6 +19,7 @@ from app.db.models import (
     AISystemProfileRecord,
     FileSecurityScanRecord,
     RAGSourceRecord,
+    ReleaseApprovalRecord,
     SecurityTestResultRecord,
     ToolEvaluationRunRecord,
     ToolEvaluationTargetRecord,
@@ -31,6 +34,10 @@ from app.models.ai_system import (
     DataClassification,
     DeploymentExposure,
     EvidenceStatus,
+    ReleaseApprovalDecisionRequest,
+    ReleaseApprovalRequest,
+    ReleaseApprovalResponse,
+    ReleaseApprovalStatus,
     SystemReleaseDecision,
     SystemReleaseEvidenceResponse,
     SystemType,
@@ -75,6 +82,42 @@ def get_tenant_profile(db: Session, system_id: str) -> AISystemProfileRecord:
     if record is None:
         raise HTTPException(status_code=404, detail="AI system profile not found.")
     return record
+
+
+def _release_snapshot_payload(
+    decision: AISystemReleaseDecisionResponse,
+) -> dict[str, object]:
+    """Freeze decision inputs without the per-request generated timestamp."""
+    return cast(
+        dict[str, object],
+        decision.model_dump(mode="json", exclude={"generated_at"}),
+    )
+
+
+def release_decision_digest(decision: AISystemReleaseDecisionResponse) -> str:
+    payload = _release_snapshot_payload(decision)
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def release_approval_to_response(
+    record: ReleaseApprovalRecord,
+) -> ReleaseApprovalResponse:
+    return ReleaseApprovalResponse(
+        id=record.id,
+        system_id=record.system_id,
+        profile_version=record.profile_version,
+        release_decision=cast(SystemReleaseDecision, record.release_decision),
+        decision_digest=record.decision_digest,
+        decision_snapshot=record.decision_snapshot,
+        request_notes=record.request_notes,
+        requested_by_user_id=record.requested_by_user_id,
+        requested_at=record.requested_at,
+        approval_status=cast(ReleaseApprovalStatus, record.approval_status),
+        decided_by_user_id=record.decided_by_user_id,
+        decided_at=record.decided_at,
+        decision_notes=record.decision_notes,
+    )
 
 
 def _evidence(
@@ -626,3 +669,150 @@ def get_ai_system_release_decision(
         evidence=evidence,
         coverage_limitations=limitations,
     )
+
+
+@router.get(
+    "/{system_id}/release-approvals",
+    response_model=list[ReleaseApprovalResponse],
+)
+def list_release_approvals(
+    system_id: str,
+    db: DBSession,
+) -> list[ReleaseApprovalResponse]:
+    system = get_tenant_profile(db, system_id)
+    actor = request_actor(db)
+    records = db.scalars(
+        select(ReleaseApprovalRecord)
+        .where(
+            ReleaseApprovalRecord.organization_id == actor.organization_id,
+            ReleaseApprovalRecord.system_id == system.id,
+        )
+        .order_by(ReleaseApprovalRecord.requested_at.desc())
+    ).all()
+    return [release_approval_to_response(record) for record in records]
+
+
+@router.post(
+    "/{system_id}/release-approvals",
+    response_model=ReleaseApprovalResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN))],
+)
+def request_release_approval(
+    system_id: str,
+    request: ReleaseApprovalRequest,
+    db: DBSession,
+) -> ReleaseApprovalResponse:
+    """Capture exact passing evidence before an independent approval."""
+    system = get_tenant_profile(db, system_id)
+    actor = request_actor(db)
+    current_decision = get_ai_system_release_decision(system.id, db)
+    if current_decision.decision != "pass":
+        raise HTTPException(
+            status_code=409,
+            detail="A release approval can be requested only for a passing decision.",
+        )
+
+    digest = release_decision_digest(current_decision)
+    record = ReleaseApprovalRecord(
+        organization_id=actor.organization_id,
+        system_id=system.id,
+        profile_version=system.profile_version,
+        release_decision=current_decision.decision,
+        decision_digest=digest,
+        decision_snapshot=_release_snapshot_payload(current_decision),
+        request_notes=request.request_notes.strip(),
+        requested_by_user_id=actor.user_id,
+        approval_status="pending",
+    )
+    db.add(record)
+    db.flush()
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="release_approval.request",
+        resource_type="release_approval",
+        resource_id=record.id,
+        details={
+            "system_id": system.id,
+            "profile_version": system.profile_version,
+            "decision": current_decision.decision,
+            "decision_digest": digest,
+        },
+    )
+    db.commit()
+    db.refresh(record)
+    return release_approval_to_response(record)
+
+
+@router.post(
+    "/{system_id}/release-approvals/{approval_id}/decision",
+    response_model=ReleaseApprovalResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN))],
+)
+def decide_release_approval(
+    system_id: str,
+    approval_id: str,
+    request: ReleaseApprovalDecisionRequest,
+    db: DBSession,
+) -> ReleaseApprovalResponse:
+    """Require a separate administrator and unchanged passing evidence to approve."""
+    system = get_tenant_profile(db, system_id)
+    actor = request_actor(db)
+    record = db.scalar(
+        select(ReleaseApprovalRecord).where(
+            ReleaseApprovalRecord.id == approval_id,
+            ReleaseApprovalRecord.organization_id == actor.organization_id,
+            ReleaseApprovalRecord.system_id == system.id,
+        )
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Release approval request not found.",
+        )
+    if record.approval_status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="This release approval already has a final decision.",
+        )
+    if request.outcome == "approved":
+        if record.requested_by_user_id == actor.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="A requester cannot approve their own release request.",
+            )
+        current_decision = get_ai_system_release_decision(system.id, db)
+        if (
+            current_decision.decision != "pass"
+            or release_decision_digest(current_decision) != record.decision_digest
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Evidence changed or no longer passes. Create a new release "
+                    "approval request after reviewing current evidence."
+                ),
+            )
+
+    record.approval_status = request.outcome
+    record.decided_by_user_id = actor.user_id
+    record.decided_at = datetime.now(UTC)
+    record.decision_notes = request.decision_notes.strip()
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action=f"release_approval.{request.outcome}",
+        resource_type="release_approval",
+        resource_id=record.id,
+        details={
+            "system_id": system.id,
+            "profile_version": record.profile_version,
+            "decision_digest": record.decision_digest,
+        },
+    )
+    db.commit()
+    db.refresh(record)
+    return release_approval_to_response(record)

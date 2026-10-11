@@ -97,6 +97,21 @@ type AISystemReleaseDecision = {
   coverage_limitations: string[];
 };
 
+type ReleaseApproval = {
+  id: string;
+  system_id: string;
+  profile_version: number;
+  release_decision: "pass" | "manual_review_required" | "fail";
+  decision_digest: string;
+  request_notes: string;
+  requested_by_user_id: string | null;
+  requested_at: string;
+  approval_status: "pending" | "approved" | "rejected";
+  decided_by_user_id: string | null;
+  decided_at: string | null;
+  decision_notes: string | null;
+};
+
 type FileSecuritySignal = {
   code: string;
   severity: "low" | "medium" | "high";
@@ -555,6 +570,7 @@ export default function App() {
   const [systemCoverage, setSystemCoverage] = useState<AISystemCoverage | null>(null);
   const [systemReleaseDecision, setSystemReleaseDecision] =
     useState<AISystemReleaseDecision | null>(null);
+  const [releaseApprovals, setReleaseApprovals] = useState<ReleaseApproval[]>([]);
   const [systemName, setSystemName] = useState("");
   const [systemDescription, setSystemDescription] = useState("");
   const [systemType, setSystemType] = useState<AISystemProfile["system_type"]>("assistant");
@@ -653,18 +669,40 @@ export default function App() {
     if (!systemId) {
       setSystemCoverage(null);
       setSystemReleaseDecision(null);
+      setReleaseApprovals([]);
       return;
     }
     try {
-      const [coverage, decision] = await Promise.all([
+      const [coverage, decision, approvals] = await Promise.all([
         apiGet<AISystemCoverage>(`/ai-systems/${systemId}/coverage`),
         apiGet<AISystemReleaseDecision>(`/ai-systems/${systemId}/release-decision`),
+        apiGet<ReleaseApproval[]>(`/ai-systems/${systemId}/release-approvals`),
       ]);
       setSelectedSystemId(systemId);
       setSystemCoverage(coverage);
       setSystemReleaseDecision(decision);
+      setReleaseApprovals(approvals);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load coverage plan");
+    }
+  }
+
+  async function requestReleaseApproval() {
+    if (!selectedSystemId || systemReleaseDecision?.decision !== "pass") {
+      setError("A current passing release decision is required before requesting approval.");
+      return;
+    }
+    setError("");
+    try {
+      const approval = await apiSend<ReleaseApproval>(
+        `/ai-systems/${selectedSystemId}/release-approvals`,
+        "POST",
+        { request_notes: "Current linked evaluation evidence reviewed for release approval." },
+      );
+      setReleaseApprovals((current) => [approval, ...current]);
+      setMessage("Immutable release-approval request recorded. A separate Admin must approve or reject it.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to request release approval");
     }
   }
 
@@ -1582,6 +1620,32 @@ export default function App() {
                       {systemReleaseDecision.coverage_limitations.map((item) => (
                         <p key={item}>Limitation: {item}</p>
                       ))}
+                      {systemReleaseDecision.decision === "pass" ? (
+                        <div className="runner-actions">
+                          <button className="refresh-button" type="button" onClick={() => void requestReleaseApproval()}>
+                            Request Independent Release Approval
+                          </button>
+                        </div>
+                      ) : null}
+                      {releaseApprovals.length > 0 ? (
+                        <div className="coverage-pack-list">
+                          <h3>Release approval history</h3>
+                          {releaseApprovals.map((approval) => (
+                            <div className="coverage-pack" key={approval.id}>
+                              <div>
+                                <span className={`badge decision-${approval.approval_status}`}>
+                                  {approval.approval_status}
+                                </span>
+                                <h3>Evidence snapshot · profile v{approval.profile_version}</h3>
+                                <p>{approval.request_notes}</p>
+                                <p>Requested: {formatDate(approval.requested_at)}</p>
+                                {approval.decision_notes ? <p>Decision note: {approval.decision_notes}</p> : null}
+                              </div>
+                              <span className="coverage-category">{approval.decision_digest.slice(0, 12)}…</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </article>
                   ) : null}
                 </>

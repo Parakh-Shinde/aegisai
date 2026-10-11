@@ -95,6 +95,7 @@ class AISystemCoverageResponse(BaseModel):
 
 SystemReleaseDecision = Literal["pass", "manual_review_required", "fail"]
 EvidenceStatus = Literal["pass", "manual_review_required", "fail", "not_applicable"]
+ReleaseApprovalStatus = Literal["pending", "approved", "rejected"]
 
 
 class SystemReleaseEvidenceResponse(BaseModel):
@@ -117,3 +118,28 @@ class AISystemReleaseDecisionResponse(BaseModel):
     stale_evidence_sources: list[str] = Field(default_factory=list)
     evidence: list[SystemReleaseEvidenceResponse]
     coverage_limitations: list[str]
+
+
+class ReleaseApprovalRequest(BaseModel):
+    request_notes: str = Field(min_length=3, max_length=2_000)
+
+
+class ReleaseApprovalDecisionRequest(BaseModel):
+    outcome: Literal["approved", "rejected"]
+    decision_notes: str = Field(min_length=3, max_length=2_000)
+
+
+class ReleaseApprovalResponse(BaseModel):
+    id: str
+    system_id: str
+    profile_version: int
+    release_decision: SystemReleaseDecision
+    decision_digest: str
+    decision_snapshot: dict[str, object]
+    request_notes: str
+    requested_by_user_id: str | None
+    requested_at: datetime
+    approval_status: ReleaseApprovalStatus
+    decided_by_user_id: str | None
+    decided_at: datetime | None
+    decision_notes: str | None

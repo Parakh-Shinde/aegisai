@@ -597,6 +597,53 @@ class EvaluationBaseline(Base):
     )
 
 
+class ReleaseApprovalRecord(Base):
+    """Immutable evidence snapshot with a separately recorded approval decision."""
+
+    __tablename__ = "release_approvals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    system_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_system_profiles.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    profile_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    release_decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    decision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision_snapshot: Mapped[dict[str, object]] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+    request_notes: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    approval_status: Mapped[str] = mapped_column(
+        String(24),
+        index=True,
+        default="pending",
+        nullable=False,
+    )
+    decided_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
