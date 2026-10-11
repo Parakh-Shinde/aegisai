@@ -706,6 +706,14 @@ def request_release_approval(
     """Capture exact passing evidence before an independent approval."""
     system = get_tenant_profile(db, system_id)
     actor = request_actor(db)
+    if actor.role != UserRole.SECURITY_ANALYST:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Release approval requests must be submitted by a Security "
+                "Analyst. An independent Administrator makes the final decision."
+            ),
+        )
     current_decision = get_ai_system_release_decision(system.id, db)
     if current_decision.decision != "pass":
         raise HTTPException(
@@ -739,6 +747,7 @@ def request_release_approval(
             "profile_version": system.profile_version,
             "decision": current_decision.decision,
             "decision_digest": digest,
+            "requester_role": actor.role.value,
         },
     )
     db.commit()
@@ -811,6 +820,7 @@ def decide_release_approval(
             "system_id": system.id,
             "profile_version": record.profile_version,
             "decision_digest": record.decision_digest,
+            "approver_role": actor.role.value,
         },
     )
     db.commit()

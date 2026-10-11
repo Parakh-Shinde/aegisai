@@ -26,6 +26,10 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > tokens with a tamper-evident audit trail. See
 > [Identity Operations](docs/identity-operations.md).
 
+> **MFA and automation tokens:** TOTP MFA, encrypted factor material, scoped
+> hashed API tokens, and stricter Security Analyst → Admin release separation
+> are documented in [MFA and Scoped API Tokens](docs/mfa-api-tokens.md).
+
 > **Finding triage:** analyst ownership, stateful remediation, SLA visibility,
 > and audited resolution decisions are documented in
 > [Finding Triage](docs/finding-triage.md).

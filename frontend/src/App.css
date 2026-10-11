@@ -575,6 +575,43 @@ button:disabled {
   background: rgba(2, 6, 23, 0.2);
 }
 
+.identity-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mfa-grid {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.secret-display {
+  overflow-wrap: anywhere;
+  border: 1px dashed rgba(94, 234, 212, 0.45);
+  border-radius: 7px;
+  padding: 10px;
+  color: #ccfbf1;
+  background: rgba(20, 184, 166, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.scope-toggle {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 9px !important;
+}
+
+.scope-toggle input {
+  width: auto;
+}
+
+.api-token-list {
+  grid-column: 1 / -1;
+}
+
 .identity-user strong {
   color: #f8fafc;
   overflow-wrap: anywhere;

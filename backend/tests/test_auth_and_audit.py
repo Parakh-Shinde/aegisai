@@ -1,4 +1,8 @@
+import base64
+import hashlib
+import hmac
 import os
+from datetime import UTC, datetime
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
@@ -6,11 +10,18 @@ import pytest
 from app.api.auth import (  # noqa: E402
     AccountStatusRequest,
     AdminPasswordResetRequest,
+    APITokenCreateRequest,
     ChangePasswordRequest,
     LocalStagingBootstrapRequest,
+    MFAActivationRequest,
+    MFAEnrollmentRequest,
+    activate_mfa,
     admin_reset_user_password,
+    begin_mfa_enrollment,
     bootstrap_existing_local_lab_administrator,
     change_own_password,
+    create_api_token,
+    revoke_api_token,
     update_organization_user_status,
 )
 from app.core.auth import (  # noqa: E402
@@ -19,7 +30,9 @@ from app.core.auth import (  # noqa: E402
     get_current_actor,
     hash_password,
     request_actor,
+    require_roles,
     verify_password,
+    verify_totp_code,
 )
 from app.db.models import AuditLog, Base, Organization, User, UserRole  # noqa: E402
 from app.services.audit import (  # noqa: E402
@@ -31,6 +44,18 @@ from fastapi import HTTPException  # noqa: E402
 from fastapi.security import HTTPAuthorizationCredentials  # noqa: E402
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
+
+
+def totp_code(secret: str, timestamp: int) -> str:
+    key = base64.b32decode(secret + "=" * (-len(secret) % 8))
+    digest = hmac.new(
+        key,
+        (timestamp // 30).to_bytes(8, "big"),
+        hashlib.sha1,
+    ).digest()
+    offset = digest[-1] & 0x0F
+    value = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
+    return f"{value % 1_000_000:06d}"
 
 
 def test_password_hash_and_jwt_token(monkeypatch) -> None:
@@ -252,6 +277,103 @@ def test_admin_can_reset_and_disable_another_user_with_audit_evidence() -> None:
             select(AuditLog.action).order_by(AuditLog.created_at)
         ).all()
         assert actions == ["user.password_reset", "user.disabled"]
+
+
+def test_mfa_enrollment_requires_valid_totp_and_revokes_old_sessions(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        organization = Organization(id="organization-1", name="Org One", slug="org-one")
+        user = User(
+            id="user-1",
+            organization_id=organization.id,
+            email="analyst@example.com",
+            password_hash=hash_password("analyst-password-123"),
+            role=UserRole.SECURITY_ANALYST,
+        )
+        db.add_all([organization, user])
+        db.commit()
+        actor = Actor(user.id, organization.id, user.role, user.email)
+        old_token = create_access_token(user)
+
+        enrollment = begin_mfa_enrollment(
+            MFAEnrollmentRequest(current_password="analyst-password-123"), actor, db
+        )
+        assert enrollment.secret not in (user.mfa_pending_secret_encrypted or "")
+        timestamp = int(datetime.now(UTC).timestamp())
+        code = totp_code(enrollment.secret, timestamp)
+        assert verify_totp_code(enrollment.secret, code, at_time=timestamp)
+
+        response = activate_mfa(MFAActivationRequest(code=code), actor, db)
+        assert user.mfa_enabled
+        assert user.auth_epoch == 1
+        with pytest.raises(HTTPException, match="revoked"):
+            get_current_actor(
+                db,
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials=old_token),
+            )
+        assert get_current_actor(
+            db,
+            HTTPAuthorizationCredentials(
+                scheme="Bearer", credentials=response.access_token
+            ),
+        ).user_id == user.id
+
+
+def test_admin_can_issue_and_revoke_a_scoped_api_token(monkeypatch) -> None:
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        organization = Organization(id="organization-1", name="Org One", slug="org-one")
+        administrator = User(
+            id="admin-1",
+            organization_id=organization.id,
+            email="admin@example.com",
+            password_hash=hash_password("admin-password-123"),
+            role=UserRole.ADMIN,
+        )
+        db.add_all([organization, administrator])
+        db.commit()
+        actor = Actor(
+            administrator.id,
+            organization.id,
+            administrator.role,
+            administrator.email,
+        )
+        created = create_api_token(
+            APITokenCreateRequest(
+                name="ci-evaluator",
+                scopes={"read", "write"},
+                expires_in_days=30,
+            ),
+            actor,
+            db,
+        )
+        api_actor = get_current_actor(
+            db,
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials=created.token),
+        )
+        assert api_actor.authentication_method == "api_token"
+        assert api_actor.role == UserRole.SECURITY_ANALYST
+        require_roles(UserRole.SECURITY_ANALYST, UserRole.ADMIN)(api_actor)
+
+        revoke_api_token(created.id, actor, db)
+        with pytest.raises(HTTPException, match="revoked"):
+            get_current_actor(
+                db,
+                HTTPAuthorizationCredentials(
+                    scheme="Bearer", credentials=created.token
+                ),
+            )
+
 
 
 def test_audit_csv_export_neutralizes_spreadsheet_formulas() -> None:

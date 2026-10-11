@@ -343,11 +343,40 @@ type CurrentUser = {
   organization_id: string;
   email: string;
   role: "admin" | "security_analyst" | "viewer";
+  mfa_enabled: boolean;
 };
 
 type OrganizationUser = CurrentUser & {
   is_active: boolean;
   last_login_at: string | null;
+};
+
+type MFAStatus = {
+  enabled: boolean;
+  enrolled_at: string | null;
+  pending_enrollment: boolean;
+};
+
+type MFAEnrollment = {
+  secret: string;
+  otpauth_uri: string;
+  expires_at: string;
+};
+
+type ApiToken = {
+  id: string;
+  name: string;
+  token_prefix: string;
+  role: "security_analyst" | "viewer";
+  scopes: Array<"read" | "write">;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+};
+
+type CreatedApiToken = ApiToken & {
+  token: string;
 };
 
 type CampaignJob = {
@@ -488,6 +517,7 @@ async function waitForCampaign(jobId: string): Promise<SuiteResponse> {
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -499,11 +529,12 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
       const token = await apiSend<TokenResponse>("/auth/login", "POST", {
         email,
         password,
+        ...(mfaCode ? { mfa_code: mfaCode } : {}),
       });
       window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token.access_token);
       onLogin();
     } catch {
-      setError("Sign-in failed. Check your email and password.");
+      setError("Sign-in failed. Check your email, password, and MFA code.");
     } finally {
       setIsSubmitting(false);
     }
@@ -535,6 +566,17 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
+          />
+        </label>
+        <label>
+          Authenticator code (only when MFA is enabled)
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            minLength={6}
+            maxLength={6}
+            value={mfaCode}
+            onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))}
           />
         </label>
         <button className="refresh-button" disabled={isSubmitting}>
@@ -576,6 +618,17 @@ export default function App() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [resetUserId, setResetUserId] = useState("");
   const [resetPassword, setResetPassword] = useState("");
+  const [mfaStatus, setMfaStatus] = useState<MFAStatus | null>(null);
+  const [mfaSetupPassword, setMfaSetupPassword] = useState("");
+  const [mfaEnrollment, setMfaEnrollment] = useState<MFAEnrollment | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaDisablePassword, setMfaDisablePassword] = useState("");
+  const [mfaDisableCode, setMfaDisableCode] = useState("");
+  const [apiTokens, setApiTokens] = useState<ApiToken[]>([]);
+  const [apiTokenName, setApiTokenName] = useState("ci-evaluator");
+  const [apiTokenExpiryDays, setApiTokenExpiryDays] = useState(90);
+  const [apiTokenWriteScope, setApiTokenWriteScope] = useState(true);
+  const [newApiToken, setNewApiToken] = useState<string | null>(null);
   const [model, setModel] = useState("qwen2.5:3b");
   const [testType, setTestType] = useState<TestType>("prompt-injection");
   const [userPrompt, setUserPrompt] = useState(DEFAULT_PROMPTS["prompt-injection"]);
@@ -664,14 +717,125 @@ export default function App() {
     try {
       const user = await apiGet<CurrentUser>("/auth/me");
       setCurrentUser(user);
+      const mfa = await apiGet<MFAStatus>("/auth/mfa");
+      setMfaStatus(mfa);
       if (user.role === "admin") {
-        const users = await apiGet<OrganizationUser[]>("/auth/users");
+        const [users, tokens] = await Promise.all([
+          apiGet<OrganizationUser[]>("/auth/users"),
+          apiGet<ApiToken[]>("/auth/api-tokens"),
+        ]);
         setOrganizationUsers(users);
+        setApiTokens(tokens);
       } else {
         setOrganizationUsers([]);
+        setApiTokens([]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load account details");
+    }
+  }
+
+  function updateAccessToken(token: TokenResponse) {
+    window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token.access_token);
+    setAccessToken(token.access_token);
+  }
+
+  async function beginMfaEnrollment(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const enrollment = await apiSend<MFAEnrollment>("/auth/mfa/enroll", "POST", {
+        current_password: mfaSetupPassword,
+      });
+      setMfaSetupPassword("");
+      setMfaEnrollment(enrollment);
+      setMfaCode("");
+      setMessage("MFA secret created. Add it to your authenticator, then enter its six-digit code within 15 minutes.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start MFA enrollment");
+    }
+  }
+
+  async function activateMfa(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const token = await apiSend<TokenResponse>("/auth/mfa/activate", "POST", { code: mfaCode });
+      updateAccessToken(token);
+      setMfaEnrollment(null);
+      setMfaCode("");
+      await loadIdentity();
+      setMessage("MFA is active. Previous browser sessions were revoked.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to activate MFA");
+    }
+  }
+
+  async function disableMfa(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const token = await apiSend<TokenResponse>("/auth/mfa/disable", "POST", {
+        current_password: mfaDisablePassword,
+        code: mfaDisableCode,
+      });
+      updateAccessToken(token);
+      setMfaDisablePassword("");
+      setMfaDisableCode("");
+      await loadIdentity();
+      setMessage("MFA disabled. Previous browser sessions were revoked.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disable MFA");
+    }
+  }
+
+  async function resetOrganizationUserMfa(user: OrganizationUser) {
+    if (!window.confirm(`Reset MFA for ${user.email}? This revokes their active sessions.`)) {
+      return;
+    }
+    setError("");
+    try {
+      const updated = await apiSend<OrganizationUser>(
+        `/auth/users/${user.user_id}/mfa-reset`,
+        "POST",
+      );
+      setOrganizationUsers((users) =>
+        users.map((item) => (item.user_id === updated.user_id ? updated : item)),
+      );
+      setMessage(`MFA recovery reset recorded for ${updated.email}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset MFA");
+    }
+  }
+
+  async function createApiToken(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const token = await apiSend<CreatedApiToken>("/auth/api-tokens", "POST", {
+        name: apiTokenName,
+        scopes: apiTokenWriteScope ? ["read", "write"] : ["read"],
+        expires_in_days: apiTokenExpiryDays,
+      });
+      setApiTokens((tokens) => [token, ...tokens]);
+      setNewApiToken(token.token);
+      setMessage("API token created. Copy it now: AEGISAI will never show it again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create API token");
+    }
+  }
+
+  async function revokeApiToken(token: ApiToken) {
+    if (!window.confirm(`Revoke API token ${token.name}? This cannot be undone.`)) {
+      return;
+    }
+    setError("");
+    try {
+      const updated = await apiSend<ApiToken>(`/auth/api-tokens/${token.id}/revoke`, "POST");
+      setApiTokens((tokens) => tokens.map((item) => (item.id === updated.id ? updated : item)));
+      setMessage(`API token ${updated.name} revoked.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke API token");
     }
   }
 
@@ -687,8 +851,7 @@ export default function App() {
         current_password: currentPassword,
         new_password: newPassword,
       });
-      window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token.access_token);
-      setAccessToken(token.access_token);
+      updateAccessToken(token);
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -1553,6 +1716,58 @@ export default function App() {
             </form>
           </div>
 
+          <div className="identity-grid mfa-grid">
+            <article className="identity-card">
+              <h3>Authenticator MFA</h3>
+              <p>
+                Status: <strong className={mfaStatus?.enabled ? "ok-text" : "warn-text"}>
+                  {mfaStatus?.enabled ? "enabled" : "not enabled"}
+                </strong>
+              </p>
+              <p className="muted-copy">
+                Use a standard authenticator app. The secret is encrypted in AEGISAI and is never shown after enrollment.
+              </p>
+              {mfaStatus?.enabled && mfaStatus.enrolled_at ? (
+                <p className="muted-copy">Enrolled: {formatDate(mfaStatus.enrolled_at)}</p>
+              ) : null}
+            </article>
+
+            {mfaStatus?.enabled ? (
+              <form className="identity-card identity-form" onSubmit={disableMfa}>
+                <h3>Disable MFA</h3>
+                <label>
+                  Current password
+                  <input type="password" value={mfaDisablePassword} onChange={(event) => setMfaDisablePassword(event.target.value)} required />
+                </label>
+                <label>
+                  Authenticator code
+                  <input inputMode="numeric" minLength={6} maxLength={6} value={mfaDisableCode} onChange={(event) => setMfaDisableCode(event.target.value.replace(/\D/g, ""))} required />
+                </label>
+                <button className="delete-button">Disable MFA</button>
+              </form>
+            ) : mfaEnrollment ? (
+              <form className="identity-card identity-form" onSubmit={activateMfa}>
+                <h3>Finish MFA enrollment</h3>
+                <p className="secret-display">{mfaEnrollment.secret}</p>
+                <p className="muted-copy">Add this key to an authenticator app as a time-based one-time password. Expires {formatDate(mfaEnrollment.expires_at)}.</p>
+                <label>
+                  Six-digit code from your app
+                  <input inputMode="numeric" minLength={6} maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ""))} required />
+                </label>
+                <button className="secondary-button">Verify and activate MFA</button>
+              </form>
+            ) : (
+              <form className="identity-card identity-form" onSubmit={beginMfaEnrollment}>
+                <h3>Enable MFA</h3>
+                <label>
+                  Current password
+                  <input type="password" autoComplete="current-password" value={mfaSetupPassword} onChange={(event) => setMfaSetupPassword(event.target.value)} required />
+                </label>
+                <button className="secondary-button">Create authenticator key</button>
+              </form>
+            )}
+          </div>
+
           {currentUser?.role === "admin" ? (
             <div className="identity-admin-workspace">
               <div className="panel-header compact-panel-header">
@@ -1567,20 +1782,27 @@ export default function App() {
                     <div>
                       <strong>{user.email}</strong>
                       <p>
-                        {user.role.replaceAll("_", " ")} · {user.is_active ? "active" : "disabled"}
+                        {user.role.replaceAll("_", " ")} · {user.is_active ? "active" : "disabled"} · MFA {user.mfa_enabled ? "enabled" : "off"}
                       </p>
                       <p className="muted-copy">
                         Last sign-in: {user.last_login_at ? formatDate(user.last_login_at) : "never"}
                       </p>
                     </div>
                     {user.user_id !== currentUser.user_id ? (
-                      <button
-                        className={user.is_active ? "delete-button" : "secondary-button"}
-                        type="button"
-                        onClick={() => void setOrganizationUserStatus(user, !user.is_active)}
-                      >
-                        {user.is_active ? "Disable" : "Enable"}
-                      </button>
+                      <div className="identity-user-actions">
+                        {user.mfa_enabled ? (
+                          <button className="secondary-button" type="button" onClick={() => void resetOrganizationUserMfa(user)}>
+                            Reset MFA
+                          </button>
+                        ) : null}
+                        <button
+                          className={user.is_active ? "delete-button" : "secondary-button"}
+                          type="button"
+                          onClick={() => void setOrganizationUserStatus(user, !user.is_active)}
+                        >
+                          {user.is_active ? "Disable" : "Enable"}
+                        </button>
+                      </div>
                     ) : (
                       <span className="badge coverage-available">Current account</span>
                     )}
@@ -1614,6 +1836,40 @@ export default function App() {
                 </label>
                 <button className="secondary-button">Reset password and revoke sessions</button>
               </form>
+
+              <form className="identity-card admin-reset-form" onSubmit={createApiToken}>
+                <h3>Create scoped API token</h3>
+                <label>
+                  Token name
+                  <input value={apiTokenName} maxLength={120} onChange={(event) => setApiTokenName(event.target.value)} required />
+                </label>
+                <label>
+                  Expires in days
+                  <input type="number" min={1} max={365} value={apiTokenExpiryDays} onChange={(event) => setApiTokenExpiryDays(Number(event.target.value))} required />
+                </label>
+                <label className="scope-toggle">
+                  <input type="checkbox" checked={apiTokenWriteScope} onChange={(event) => setApiTokenWriteScope(event.target.checked)} />
+                  Include analyst write scope
+                </label>
+                <button className="secondary-button">Create API token</button>
+                {newApiToken ? <p className="secret-display">{newApiToken}</p> : null}
+              </form>
+
+              <div className="identity-card api-token-list">
+                <h3>Automation tokens</h3>
+                {apiTokens.length ? apiTokens.map((token) => (
+                  <article className="identity-user" key={token.id}>
+                    <div>
+                      <strong>{token.name}</strong>
+                      <p>{token.token_prefix}… · {token.scopes.join(", ")} · {token.role.replaceAll("_", " ")}</p>
+                      <p className="muted-copy">Expires: {token.expires_at ? formatDate(token.expires_at) : "never"} · Last used: {token.last_used_at ? formatDate(token.last_used_at) : "never"}</p>
+                    </div>
+                    {token.revoked_at ? <span className="badge decision-fail">revoked</span> : (
+                      <button className="delete-button" type="button" onClick={() => void revokeApiToken(token)}>Revoke</button>
+                    )}
+                  </article>
+                )) : <p className="muted-copy">No automation tokens have been issued.</p>}
+              </div>
             </div>
           ) : null}
         </section>

@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
+import pytest  # noqa: E402
 from app.api.ai_systems import (  # noqa: E402
     _apply_evidence_freshness,
     decide_release_approval,
@@ -25,6 +26,7 @@ from app.models.ai_system import (  # noqa: E402
     ReleaseApprovalRequest,
     SystemReleaseEvidenceResponse,
 )
+from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -152,6 +154,14 @@ def test_unified_release_decision_passes_only_with_linked_evidence() -> None:
             role=approver.role,
             email=approver.email,
         )
+        with pytest.raises(HTTPException, match="Security Analyst"):
+            request_release_approval(
+                system.id,
+                ReleaseApprovalRequest(
+                    request_notes="An Admin cannot request final approval."
+                ),
+                db,
+            )
         approved = decide_release_approval(
             system.id,
             approval.id,

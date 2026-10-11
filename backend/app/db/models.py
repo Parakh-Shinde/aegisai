@@ -77,6 +77,62 @@ class User(Base):
     # Incremented whenever credentials or account access change. Tokens carry this
     # value, so a password reset, disablement, or re-enablement revokes old tokens.
     auth_epoch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    mfa_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mfa_pending_secret_encrypted: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    mfa_pending_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mfa_enrolled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
+class ApiTokenRecord(Base):
+    """A hashed, scoped automation credential; its plaintext is never retained."""
+
+    __tablename__ = "api_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_api_tokens_token_hash"),
+        UniqueConstraint(
+            "organization_id",
+            "name",
+            name="uq_api_tokens_org_name",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    token_prefix: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        SqlEnum(UserRole, name="api_token_role", native_enum=False),
+        default=UserRole.VIEWER,
+        nullable=False,
+    )
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RegisteredModelRecord(Base):

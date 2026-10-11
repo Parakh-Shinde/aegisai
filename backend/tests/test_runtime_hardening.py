@@ -142,6 +142,33 @@ def test_production_requires_tool_runner_token(
         get_settings()
 
 
+def test_production_requires_independent_mfa_encryption_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_ENVIRONMENT", "production")
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://aegisai:password@postgres:5432/aegisai",
+    )
+    monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
+    monkeypatch.setenv(
+        "AEGISAI_EVIDENCE_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+    monkeypatch.setenv("AEGISAI_CORS_ORIGINS", "https://aegisai.example.com")
+    monkeypatch.setenv("AEGISAI_TRUSTED_HOSTS", "aegisai.example.com")
+    monkeypatch.setenv("AEGISAI_REDIS_URL", "redis://redis:6379/0")
+    monkeypatch.setenv("AEGISAI_ASYNC_CAMPAIGNS", "true")
+    monkeypatch.setenv("AEGISAI_AGENT_GATEWAY_TOKEN", "a" * 32)
+    monkeypatch.setenv("AEGISAI_TOOL_RUNNER_TOKEN", "b" * 32)
+    monkeypatch.setenv("AEGISAI_OCR_ENABLED", "false")
+    monkeypatch.delenv("AEGISAI_MFA_ENCRYPTION_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="MFA_ENCRYPTION_KEY"):
+        get_settings()
+
+
 def test_jwt_has_audience_and_rejects_another_audience(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

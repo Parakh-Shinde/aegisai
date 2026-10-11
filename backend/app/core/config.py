@@ -17,6 +17,7 @@ class Settings:
     allow_local_staging_bootstrap: bool
     local_organization_slug: str
     evidence_encryption_key: str | None
+    mfa_encryption_key: str | None
     jwt_audience: str
     cors_origins: tuple[str, ...]
     trusted_hosts: tuple[str, ...]
@@ -57,6 +58,7 @@ def get_settings() -> Settings:
     )
     jwt_secret = os.getenv("AEGISAI_JWT_SECRET", "")
     evidence_encryption_key = os.getenv("AEGISAI_EVIDENCE_ENCRYPTION_KEY") or None
+    mfa_encryption_key = os.getenv("AEGISAI_MFA_ENCRYPTION_KEY") or None
     cors_origins = _comma_separated_env(
         "AEGISAI_CORS_ORIGINS",
         "http://localhost:5173,http://127.0.0.1:5173",
@@ -148,6 +150,20 @@ def get_settings() -> Settings:
                 "AEGISAI_OCR_RUNNER_TOKEN must be a unique value of at least 32 "
                 "characters when OCR is enabled in production."
             )
+        if not mfa_encryption_key:
+            raise RuntimeError(
+                "AEGISAI_MFA_ENCRYPTION_KEY is required in production."
+            )
+        try:
+            decoded_mfa_key = urlsafe_b64decode(mfa_encryption_key.encode("ascii"))
+        except (UnicodeEncodeError, ValueError) as exc:
+            raise RuntimeError(
+                "AEGISAI_MFA_ENCRYPTION_KEY must be a valid Fernet key."
+            ) from exc
+        if len(decoded_mfa_key) != 32:
+            raise RuntimeError(
+                "AEGISAI_MFA_ENCRYPTION_KEY must be a valid Fernet key."
+            )
 
     return Settings(
         environment=environment,
@@ -164,6 +180,7 @@ def get_settings() -> Settings:
             "local-lab",
         ),
         evidence_encryption_key=evidence_encryption_key,
+        mfa_encryption_key=mfa_encryption_key,
         cors_origins=cors_origins,
         trusted_hosts=trusted_hosts,
         max_request_body_bytes=_bounded_int_env(

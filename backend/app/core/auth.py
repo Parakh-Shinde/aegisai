@@ -1,3 +1,9 @@
+import base64
+import binascii
+import hashlib
+import hmac
+import secrets
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -5,7 +11,7 @@ from typing import Annotated
 from uuid import uuid4
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 from sqlalchemy import select
@@ -13,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.db.models import Organization, User, UserRole
+from app.db.models import ApiTokenRecord, Organization, User, UserRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
 password_hasher = PasswordHash.recommended()
@@ -26,6 +32,8 @@ class Actor:
     organization_id: str
     role: UserRole
     email: str
+    authentication_method: str = "session"
+    scopes: frozenset[str] = frozenset()
 
 
 DBSession = Annotated[Session, Depends(get_db)]
@@ -43,6 +51,76 @@ def verify_password(password: str, password_hash: str) -> bool:
     return password_hasher.verify(password, password_hash)
 
 
+def generate_totp_secret() -> str:
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def verify_totp_code(secret: str, code: str, *, at_time: int | None = None) -> bool:
+    """Verify a standard six-digit RFC 6238 TOTP code with a one-step window."""
+    if not code.isdecimal() or len(code) != 6:
+        return False
+    try:
+        key = base64.b32decode(secret + "=" * (-len(secret) % 8), casefold=True)
+    except (ValueError, binascii.Error):
+        return False
+
+    timestamp = int(time.time()) if at_time is None else at_time
+    for offset in (-30, 0, 30):
+        counter = (timestamp + offset) // 30
+        digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+        position = digest[-1] & 0x0F
+        binary = int.from_bytes(digest[position : position + 4], "big") & 0x7FFFFFFF
+        candidate = f"{binary % 1_000_000:06d}"
+        if hmac.compare_digest(candidate, code):
+            return True
+    return False
+
+
+def _mfa_cipher_key() -> bytes:
+    """Use an independent configured key in production and a deterministic dev key."""
+    settings = get_settings()
+    configured_key = settings.mfa_encryption_key
+    if configured_key:
+        return configured_key.encode("ascii")
+    # Development only: avoids persisting plaintext while keeping local setup simple.
+    key_material = hashlib.sha256(settings.jwt_secret.encode()).digest()
+    return base64.urlsafe_b64encode(key_material)
+
+
+def protect_mfa_secret(secret: str) -> str:
+    from cryptography.fernet import Fernet
+
+    return Fernet(_mfa_cipher_key()).encrypt(secret.encode("utf-8")).decode("ascii")
+
+
+def reveal_mfa_secret(encrypted_secret: str) -> str:
+    from cryptography.fernet import Fernet, InvalidToken
+
+    try:
+        cipher = Fernet(_mfa_cipher_key())
+        return cipher.decrypt(encrypted_secret.encode("ascii")).decode("utf-8")
+    except (InvalidToken, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Stored MFA material cannot be decrypted. Reset MFA with an "
+                "administrator."
+            ),
+        ) from exc
+
+
+def generate_api_token() -> str:
+    return f"agt_{secrets.token_urlsafe(32)}"
+
+
+def api_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def api_token_prefix(token: str) -> str:
+    return token[:16]
+
+
 def create_access_token(user: User) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
@@ -55,6 +133,7 @@ def create_access_token(user: User) -> str:
         "aud": settings.jwt_audience,
         "jti": str(uuid4()),
         "auth_epoch": user.auth_epoch,
+        "amr": ["pwd", "totp"] if user.mfa_enabled else ["pwd"],
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_expiry_minutes),
     }
@@ -121,6 +200,9 @@ def get_current_actor(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if credentials.credentials.startswith("agt_"):
+        return _get_api_token_actor(db, credentials.credentials)
+
     try:
         payload = jwt.decode(
             credentials.credentials,
@@ -173,12 +255,67 @@ def get_current_actor(
     return actor
 
 
+def _get_api_token_actor(db: Session, token: str) -> Actor:
+    record = db.scalar(
+        select(ApiTokenRecord).where(
+            ApiTokenRecord.token_hash == api_token_hash(token),
+            ApiTokenRecord.revoked_at.is_(None),
+        )
+    )
+    now = datetime.now(UTC)
+    if (
+        record is None
+        or (
+            record.expires_at is not None
+            and _as_utc(record.expires_at) <= now
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid, expired, or revoked API token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # A database lookup and constant-time comparison prevent prefix-only token use.
+    if not hmac.compare_digest(record.token_hash, api_token_hash(token)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid, expired, or revoked API token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    record.last_used_at = now
+    db.commit()
+    actor = Actor(
+        user_id=record.created_by_user_id or f"api-token:{record.id}",
+        organization_id=record.organization_id,
+        role=record.role,
+        email=f"api-token:{record.name}",
+        authentication_method="api_token",
+        scopes=frozenset(scope for scope in record.scopes if isinstance(scope, str)),
+    )
+    db.info[ACTOR_SESSION_KEY] = actor
+    return actor
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 def bind_request_actor(
+    request: Request,
     actor: Annotated[Actor, Depends(get_current_actor)],
 ) -> None:
     # get_current_actor attaches this actor to the cached request DB session.
     # Keeping this dependency makes every protected router authenticate first.
-    del actor
+    if (
+        actor.authentication_method == "api_token"
+        and request.method not in {"GET", "HEAD", "OPTIONS"}
+        and "write" not in actor.scopes
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This API token requires the 'write' scope for this action.",
+        )
 
 
 def request_actor(db: Session) -> Actor:
@@ -195,5 +332,14 @@ def require_roles(*allowed_roles: UserRole) -> Callable[[Actor], None]:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your role is not permitted to perform this action.",
             )
+        if actor.authentication_method == "api_token":
+            required_scope = (
+                "admin" if allowed_roles == (UserRole.ADMIN,) else "write"
+            )
+            if required_scope not in actor.scopes:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"This API token requires the {required_scope!r} scope.",
+                )
 
     return dependency
