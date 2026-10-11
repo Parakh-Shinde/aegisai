@@ -338,6 +338,18 @@ type TokenResponse = {
   access_token: string;
 };
 
+type CurrentUser = {
+  user_id: string;
+  organization_id: string;
+  email: string;
+  role: "admin" | "security_analyst" | "viewer";
+};
+
+type OrganizationUser = CurrentUser & {
+  is_active: boolean;
+  last_login_at: string | null;
+};
+
 type CampaignJob = {
   job_id: string;
   campaign_id: string;
@@ -557,6 +569,13 @@ export default function App() {
   const [accessToken, setAccessToken] = useState(() =>
     window.sessionStorage.getItem(ACCESS_TOKEN_KEY),
   );
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [organizationUsers, setOrganizationUsers] = useState<OrganizationUser[]>([]);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetUserId, setResetUserId] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
   const [model, setModel] = useState("qwen2.5:3b");
   const [testType, setTestType] = useState<TestType>("prompt-injection");
   const [userPrompt, setUserPrompt] = useState(DEFAULT_PROMPTS["prompt-injection"]);
@@ -640,6 +659,84 @@ export default function App() {
   const uncertainCount =
     suite?.uncertain ?? results.filter((r) => r.risk_status === "uncertain").length;
   const safetyScore = suite?.safety_score ?? modelComparison[0]?.safety_score ?? 0;
+
+  async function loadIdentity() {
+    try {
+      const user = await apiGet<CurrentUser>("/auth/me");
+      setCurrentUser(user);
+      if (user.role === "admin") {
+        const users = await apiGet<OrganizationUser[]>("/auth/users");
+        setOrganizationUsers(users);
+      } else {
+        setOrganizationUsers([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load account details");
+    }
+  }
+
+  async function changePassword(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (newPassword !== confirmPassword) {
+      setError("The new password and confirmation do not match.");
+      return;
+    }
+    try {
+      const token = await apiSend<TokenResponse>("/auth/password/change", "POST", {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token.access_token);
+      setAccessToken(token.access_token);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Password changed. Other active sessions were revoked.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to change password");
+    }
+  }
+
+  async function resetOrganizationUserPassword(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (!resetUserId || !resetPassword) {
+      setError("Select an account and provide a replacement password.");
+      return;
+    }
+    try {
+      const updated = await apiSend<OrganizationUser>(
+        `/auth/users/${resetUserId}/password-reset`,
+        "POST",
+        { new_password: resetPassword },
+      );
+      setOrganizationUsers((users) =>
+        users.map((user) => (user.user_id === updated.user_id ? updated : user)),
+      );
+      setResetPassword("");
+      setMessage(`Password reset recorded for ${updated.email}. Existing sessions were revoked.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset user password");
+    }
+  }
+
+  async function setOrganizationUserStatus(user: OrganizationUser, isActive: boolean) {
+    setError("");
+    try {
+      const updated = await apiSend<OrganizationUser>(
+        `/auth/users/${user.user_id}/status`,
+        "PATCH",
+        { is_active: isActive },
+      );
+      setOrganizationUsers((users) =>
+        users.map((item) => (item.user_id === updated.user_id ? updated : item)),
+      );
+      setMessage(`${updated.email} is now ${updated.is_active ? "active" : "disabled"}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update account status");
+    }
+  }
 
   async function refreshDashboard() {
     setError("");
@@ -1280,6 +1377,7 @@ export default function App() {
     const startupTimer = window.setTimeout(() => {
       void refreshDashboard();
       void checkHealth();
+      void loadIdentity();
       void apiGet<AISystemProfile[]>("/ai-systems/")
         .then((profiles) => {
           setAiSystems(profiles);
@@ -1329,6 +1427,7 @@ export default function App() {
 
         <nav className="side-nav">
           <a href="#overview">Overview</a>
+          <a href="#identity">Identity</a>
           <a href="#testing">Run Tests</a>
           <a href="#ai-systems">AI Systems</a>
           <a href="#file-security">File Security</a>
@@ -1392,6 +1491,132 @@ export default function App() {
 
         {error ? <p className="error-text">{error}</p> : null}
         {message ? <p className="status-text">{message}</p> : null}
+
+        <section className="panel identity-panel" id="identity">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Identity operations</p>
+              <h2>Account Security</h2>
+              <p>Change your credentials and manage organization access with auditable controls.</p>
+            </div>
+            {currentUser ? (
+              <span className="badge review-confirmed-safe">
+                {currentUser.role.replaceAll("_", " ")}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="identity-grid">
+            <article className="identity-card">
+              <h3>Your signed-in account</h3>
+              <p>{currentUser?.email ?? "Loading account details..."}</p>
+              <p className="muted-copy">
+                Password changes revoke all other active sessions immediately.
+              </p>
+            </article>
+
+            <form className="identity-card identity-form" onSubmit={changePassword}>
+              <h3>Change password</h3>
+              <label>
+                Current password
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                New password
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Confirm new password
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                />
+              </label>
+              <button className="secondary-button">Change password</button>
+            </form>
+          </div>
+
+          {currentUser?.role === "admin" ? (
+            <div className="identity-admin-workspace">
+              <div className="panel-header compact-panel-header">
+                <div>
+                  <p className="eyebrow">Administrator controls</p>
+                  <h3>Organization accounts</h3>
+                </div>
+              </div>
+              <div className="identity-user-list">
+                {organizationUsers.map((user) => (
+                  <article className="identity-user" key={user.user_id}>
+                    <div>
+                      <strong>{user.email}</strong>
+                      <p>
+                        {user.role.replaceAll("_", " ")} · {user.is_active ? "active" : "disabled"}
+                      </p>
+                      <p className="muted-copy">
+                        Last sign-in: {user.last_login_at ? formatDate(user.last_login_at) : "never"}
+                      </p>
+                    </div>
+                    {user.user_id !== currentUser.user_id ? (
+                      <button
+                        className={user.is_active ? "delete-button" : "secondary-button"}
+                        type="button"
+                        onClick={() => void setOrganizationUserStatus(user, !user.is_active)}
+                      >
+                        {user.is_active ? "Disable" : "Enable"}
+                      </button>
+                    ) : (
+                      <span className="badge coverage-available">Current account</span>
+                    )}
+                  </article>
+                ))}
+              </div>
+
+              <form className="identity-card admin-reset-form" onSubmit={resetOrganizationUserPassword}>
+                <h3>Reset another user’s password</h3>
+                <label>
+                  Account
+                  <select value={resetUserId} onChange={(event) => setResetUserId(event.target.value)} required>
+                    <option value="">Select an account</option>
+                    {organizationUsers
+                      .filter((user) => user.user_id !== currentUser.user_id)
+                      .map((user) => (
+                        <option key={user.user_id} value={user.user_id}>{user.email}</option>
+                      ))}
+                  </select>
+                </label>
+                <label>
+                  Replacement password
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    value={resetPassword}
+                    onChange={(event) => setResetPassword(event.target.value)}
+                    required
+                  />
+                </label>
+                <button className="secondary-button">Reset password and revoke sessions</button>
+              </form>
+            </div>
+          ) : null}
+        </section>
 
         <section className="hero-grid">
           <article className="video-card">

@@ -74,6 +74,9 @@ class User(Base):
         nullable=False,
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Incremented whenever credentials or account access change. Tokens carry this
+    # value, so a password reset, disablement, or re-enablement revokes old tokens.
+    auth_epoch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class RegisteredModelRecord(Base):

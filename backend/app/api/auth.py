@@ -53,6 +53,24 @@ class CurrentUserResponse(BaseModel):
     role: UserRole
 
 
+class OrganizationUserResponse(CurrentUserResponse):
+    is_active: bool
+    last_login_at: datetime | None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+class AdminPasswordResetRequest(BaseModel):
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+class AccountStatusRequest(BaseModel):
+    is_active: bool
+
+
 class CreateUserRequest(BaseModel):
     email: str = Field(min_length=5, max_length=320)
     password: str = Field(min_length=12, max_length=256)
@@ -72,6 +90,40 @@ def validate_email(email: str) -> str:
             detail="A valid email address is required.",
         )
     return normalized
+
+
+def require_admin(actor: Actor) -> None:
+    if actor.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organization administrators can perform this action.",
+        )
+
+
+def response_for_user(user: User) -> OrganizationUserResponse:
+    return OrganizationUserResponse(
+        user_id=user.id,
+        organization_id=user.organization_id,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        last_login_at=user.last_login_at,
+    )
+
+
+def get_organization_user_or_404(db: Session, actor: Actor, user_id: str) -> User:
+    user = db.scalar(
+        select(User).where(
+            User.id == user_id,
+            User.organization_id == actor.organization_id,
+        )
+    )
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User was not found in this organization.",
+        )
+    return user
 
 
 @router.post("/bootstrap", status_code=status.HTTP_201_CREATED)
@@ -292,19 +344,70 @@ def get_current_user(actor: CurrentActor) -> CurrentUserResponse:
     )
 
 
+@router.post("/password/change", response_model=TokenResponse)
+def change_own_password(
+    password_change: ChangePasswordRequest,
+    actor: CurrentActor,
+    db: DBSession,
+) -> TokenResponse:
+    user = get_organization_user_or_404(db, actor, actor.user_id)
+    if not verify_password(password_change.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect.",
+        )
+    if verify_password(password_change.new_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose a password that is different from your current password.",
+        )
+
+    user.password_hash = hash_password(password_change.new_password)
+    user.auth_epoch += 1
+    db.flush()
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="auth.password_changed",
+        resource_type="user",
+        resource_id=user.id,
+        details={"sessions_revoked": True},
+    )
+    db.commit()
+
+    settings = get_settings()
+    return TokenResponse(
+        access_token=create_access_token(user),
+        expires_in_seconds=settings.jwt_expiry_minutes * 60,
+    )
+
+
+@router.get("/users", response_model=list[OrganizationUserResponse])
+def list_organization_users(
+    actor: CurrentActor,
+    db: DBSession,
+) -> list[OrganizationUserResponse]:
+    require_admin(actor)
+    users = db.scalars(
+        select(User)
+        .where(User.organization_id == actor.organization_id)
+        .order_by(User.email)
+    ).all()
+    return [response_for_user(user) for user in users]
+
+
 @router.post(
-    "/users", response_model=CurrentUserResponse, status_code=status.HTTP_201_CREATED
+    "/users",
+    response_model=OrganizationUserResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 def create_organization_user(
     request: CreateUserRequest,
     actor: CurrentActor,
     db: DBSession,
-) -> CurrentUserResponse:
-    if actor.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only organization administrators can create users.",
-        )
+) -> OrganizationUserResponse:
+    require_admin(actor)
 
     email = validate_email(request.email)
     if db.scalar(select(User).where(User.email == email)) is not None:
@@ -333,9 +436,92 @@ def create_organization_user(
     )
     db.commit()
 
-    return CurrentUserResponse(
-        user_id=user.id,
-        organization_id=user.organization_id,
-        email=user.email,
-        role=user.role,
+    return response_for_user(user)
+
+
+@router.post(
+    "/users/{user_id}/password-reset",
+    response_model=OrganizationUserResponse,
+)
+def admin_reset_user_password(
+    user_id: str,
+    password_reset: AdminPasswordResetRequest,
+    actor: CurrentActor,
+    db: DBSession,
+) -> OrganizationUserResponse:
+    require_admin(actor)
+    if user_id == actor.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use the password-change endpoint for your own account.",
+        )
+
+    user = get_organization_user_or_404(db, actor, user_id)
+    user.password_hash = hash_password(password_reset.new_password)
+    user.auth_epoch += 1
+    db.flush()
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="user.password_reset",
+        resource_type="user",
+        resource_id=user.id,
+        details={"sessions_revoked": True, "target_role": user.role.value},
     )
+    db.commit()
+    return response_for_user(user)
+
+
+@router.patch(
+    "/users/{user_id}/status",
+    response_model=OrganizationUserResponse,
+)
+def update_organization_user_status(
+    user_id: str,
+    account_status: AccountStatusRequest,
+    actor: CurrentActor,
+    db: DBSession,
+) -> OrganizationUserResponse:
+    require_admin(actor)
+    if user_id == actor.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Administrators cannot change the active status of their own account."
+            ),
+        )
+
+    user = get_organization_user_or_404(db, actor, user_id)
+    if user.is_active == account_status.is_active:
+        return response_for_user(user)
+    if not account_status.is_active and user.role == UserRole.ADMIN:
+        active_administrators = db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.organization_id == actor.organization_id,
+                User.role == UserRole.ADMIN,
+                User.is_active.is_(True),
+            )
+        )
+        if (active_administrators or 0) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="At least one active organization administrator is required.",
+            )
+
+    user.is_active = account_status.is_active
+    user.auth_epoch += 1
+    db.flush()
+    write_audit_log(
+        db,
+        organization_id=actor.organization_id,
+        actor_id=actor.user_id,
+        action="user.enabled" if user.is_active else "user.disabled",
+        resource_type="user",
+        resource_id=user.id,
+        details={"sessions_revoked": True, "target_role": user.role.value},
+    )
+    db.commit()
+    return response_for_user(user)

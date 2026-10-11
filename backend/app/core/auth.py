@@ -54,6 +54,7 @@ def create_access_token(user: User) -> str:
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
         "jti": str(uuid4()),
+        "auth_epoch": user.auth_epoch,
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_expiry_minutes),
     }
@@ -137,7 +138,13 @@ def get_current_actor(
 
     user_id = payload.get("sub")
     organization_id = payload.get("organization_id")
-    if not isinstance(user_id, str) or not isinstance(organization_id, str):
+    token_auth_epoch = payload.get("auth_epoch")
+    if (
+        not isinstance(user_id, str)
+        or not isinstance(organization_id, str)
+        or not isinstance(token_auth_epoch, int)
+        or isinstance(token_auth_epoch, bool)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid access token claims.",
@@ -148,6 +155,12 @@ def get_current_actor(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account is inactive or unavailable.",
+        )
+    if user.auth_epoch != token_auth_epoch:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token has been revoked.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     actor = Actor(

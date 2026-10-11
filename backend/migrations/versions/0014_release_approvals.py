@@ -50,7 +50,11 @@ def upgrade() -> None:
         "release_approvals",
         ["organization_id"],
     )
-    op.create_index("ix_release_approvals_system_id", "release_approvals", ["system_id"])
+    op.create_index(
+        "ix_release_approvals_system_id",
+        "release_approvals",
+        ["system_id"],
+    )
     op.create_index(
         "ix_release_approvals_approval_status",
         "release_approvals",
@@ -59,7 +63,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_release_approvals_approval_status", table_name="release_approvals")
+    op.drop_index(
+        "ix_release_approvals_approval_status",
+        table_name="release_approvals",
+    )
     op.drop_index("ix_release_approvals_system_id", table_name="release_approvals")
     op.drop_index(
         "ix_release_approvals_organization_id",

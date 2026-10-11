@@ -21,6 +21,11 @@ AEGISAI is a practical AI security lab for evaluating AI models before they are 
 > Compose resource limits are documented in
 > [Operational Readiness](docs/operational-readiness.md).
 
+> **Identity operations:** authenticated users can rotate their own passwords;
+> Admins can manage organization accounts, reset other users, and revoke active
+> tokens with a tamper-evident audit trail. See
+> [Identity Operations](docs/identity-operations.md).
+
 > **Finding triage:** analyst ownership, stateful remediation, SLA visibility,
 > and audited resolution decisions are documented in
 > [Finding Triage](docs/finding-triage.md).

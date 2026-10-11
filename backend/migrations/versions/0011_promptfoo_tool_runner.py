@@ -34,8 +34,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["system_id"], ["ai_system_profiles.id"], ondelete="CASCADE"
         ),
-        sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"], ondelete="SET NULL"),
-        sa.UniqueConstraint("organization_id", "name", name="uq_tool_evaluation_targets_org_name"),
+        sa.ForeignKeyConstraint(
+            ["created_by_user_id"], ["users.id"], ondelete="SET NULL"
+        ),
+        sa.UniqueConstraint(
+            "organization_id",
+            "name",
+            name="uq_tool_evaluation_targets_org_name",
+        ),
     )
     op.create_index(
         "ix_tool_evaluation_targets_organization_id",
@@ -78,7 +84,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["target_id"], ["tool_evaluation_targets.id"], ondelete="CASCADE"
         ),
-        sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["created_by_user_id"], ["users.id"], ondelete="SET NULL"
+        ),
     )
     for column in ("organization_id", "system_id", "target_id", "status"):
         op.create_index(
@@ -116,10 +124,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for column in ("outcome", "run_id", "organization_id"):
-        op.drop_index(f"ix_tool_evaluation_cases_{column}", table_name="tool_evaluation_cases")
+        op.drop_index(
+            f"ix_tool_evaluation_cases_{column}",
+            table_name="tool_evaluation_cases",
+        )
     op.drop_table("tool_evaluation_cases")
     for column in ("status", "target_id", "system_id", "organization_id"):
-        op.drop_index(f"ix_tool_evaluation_runs_{column}", table_name="tool_evaluation_runs")
+        op.drop_index(
+            f"ix_tool_evaluation_runs_{column}",
+            table_name="tool_evaluation_runs",
+        )
     op.drop_table("tool_evaluation_runs")
     op.drop_index(
         "ix_tool_evaluation_targets_system_id", table_name="tool_evaluation_targets"

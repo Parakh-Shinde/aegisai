@@ -2,11 +2,19 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
+import pytest
 from app.api.auth import (  # noqa: E402
+    AccountStatusRequest,
+    AdminPasswordResetRequest,
+    ChangePasswordRequest,
     LocalStagingBootstrapRequest,
+    admin_reset_user_password,
     bootstrap_existing_local_lab_administrator,
+    change_own_password,
+    update_organization_user_status,
 )
 from app.core.auth import (  # noqa: E402
+    Actor,
     create_access_token,
     get_current_actor,
     hash_password,
@@ -19,6 +27,8 @@ from app.services.audit import (  # noqa: E402
     verify_audit_chain,
     write_audit_log,
 )
+from fastapi import HTTPException  # noqa: E402
+from fastapi.security import HTTPAuthorizationCredentials  # noqa: E402
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
@@ -139,6 +149,109 @@ def test_local_staging_bootstrap_replaces_known_development_account(
     administrator = next(user for user in users if user.email == "admin@example.local")
     assert administrator.is_active
     assert administrator.role == UserRole.ADMIN
+
+
+def test_password_change_revokes_old_token_and_returns_a_new_one(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_AUTH_REQUIRED", "true")
+    monkeypatch.setenv("AEGISAI_JWT_SECRET", "a" * 32)
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        organization = Organization(id="organization-1", name="Org One", slug="org-one")
+        user = User(
+            id="user-1",
+            organization_id=organization.id,
+            email="analyst@example.com",
+            password_hash=hash_password("old-password-123"),
+            role=UserRole.SECURITY_ANALYST,
+        )
+        db.add_all([organization, user])
+        db.commit()
+        old_token = create_access_token(user)
+        actor = Actor(
+            user_id=user.id,
+            organization_id=organization.id,
+            role=user.role,
+            email=user.email,
+        )
+
+        response = change_own_password(
+            ChangePasswordRequest(
+                current_password="old-password-123",
+                new_password="new-password-456",
+            ),
+            actor,
+            db,
+        )
+
+        assert verify_password("new-password-456", user.password_hash)
+        assert user.auth_epoch == 1
+        with pytest.raises(HTTPException, match="revoked"):
+            get_current_actor(
+                db,
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials=old_token),
+            )
+        assert get_current_actor(
+            db,
+            HTTPAuthorizationCredentials(
+                scheme="Bearer", credentials=response.access_token
+            ),
+        ).user_id == user.id
+
+
+def test_admin_can_reset_and_disable_another_user_with_audit_evidence() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as db:
+        organization = Organization(id="organization-1", name="Org One", slug="org-one")
+        administrator = User(
+            id="admin-1",
+            organization_id=organization.id,
+            email="admin@example.com",
+            password_hash=hash_password("admin-password-123"),
+            role=UserRole.ADMIN,
+        )
+        analyst = User(
+            id="analyst-1",
+            organization_id=organization.id,
+            email="analyst@example.com",
+            password_hash=hash_password("analyst-password-123"),
+            role=UserRole.SECURITY_ANALYST,
+        )
+        db.add_all([organization, administrator, analyst])
+        db.commit()
+        actor = Actor(
+            user_id=administrator.id,
+            organization_id=organization.id,
+            role=administrator.role,
+            email=administrator.email,
+        )
+
+        reset_response = admin_reset_user_password(
+            analyst.id,
+            AdminPasswordResetRequest(new_password="replacement-password-456"),
+            actor,
+            db,
+        )
+        disabled_response = update_organization_user_status(
+            analyst.id,
+            AccountStatusRequest(is_active=False),
+            actor,
+            db,
+        )
+
+        assert reset_response.is_active
+        assert verify_password("replacement-password-456", analyst.password_hash)
+        assert analyst.auth_epoch == 2
+        assert not disabled_response.is_active
+        actions = db.scalars(
+            select(AuditLog.action).order_by(AuditLog.created_at)
+        ).all()
+        assert actions == ["user.password_reset", "user.disabled"]
 
 
 def test_audit_csv_export_neutralizes_spreadsheet_formulas() -> None:

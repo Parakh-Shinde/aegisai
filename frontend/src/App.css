@@ -502,6 +502,90 @@ button:disabled {
   gap: 8px;
 }
 
+.identity-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.identity-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.24);
+}
+
+.identity-card > p {
+  margin: 0;
+  color: #cbd5e1;
+  overflow-wrap: anywhere;
+}
+
+.identity-form label,
+.admin-reset-form label {
+  display: grid;
+  gap: 7px;
+  color: #cbd5e1;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.identity-form input,
+.admin-reset-form input,
+.admin-reset-form select {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 7px;
+  padding: 10px 11px;
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.identity-admin-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+  gap: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  padding: 18px 20px;
+}
+
+.compact-panel-header {
+  grid-column: 1 / -1;
+  padding: 0;
+  border: 0;
+}
+
+.identity-user-list {
+  display: grid;
+  gap: 8px;
+}
+
+.identity-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  padding: 13px;
+  background: rgba(2, 6, 23, 0.2);
+}
+
+.identity-user strong {
+  color: #f8fafc;
+  overflow-wrap: anywhere;
+}
+
+.identity-user p {
+  margin: 5px 0 0;
+  color: #9fb0c7;
+  font-size: 0.82rem;
+}
+
 .form-grid,
 .filters-grid,
 .campaign-tools {
@@ -1351,6 +1435,8 @@ td:nth-child(6) {
   .video-card,
   .form-grid,
   .filters-grid,
+  .identity-grid,
+  .identity-admin-workspace,
   .profile-options,
   .live-grid,
   .details-grid {
@@ -1391,6 +1477,8 @@ td:nth-child(6) {
   .panel-header,
   .form-grid,
   .filters-grid,
+  .identity-grid,
+  .identity-admin-workspace,
   .runner-actions,
   .live-grid,
   .risk-list,
