@@ -631,7 +631,9 @@ export default function App() {
   const [apiTokens, setApiTokens] = useState<ApiToken[]>([]);
   const [apiTokenName, setApiTokenName] = useState("ci-evaluator");
   const [apiTokenExpiryDays, setApiTokenExpiryDays] = useState(90);
-  const [apiTokenWriteScope, setApiTokenWriteScope] = useState(true);
+  // New automation credentials must start with the least-privileged scope.
+  // Operators explicitly opt in to write access only when an integration needs it.
+  const [apiTokenWriteScope, setApiTokenWriteScope] = useState(false);
   const [newApiToken, setNewApiToken] = useState<string | null>(null);
   const [model, setModel] = useState("qwen2.5:3b");
   const [testType, setTestType] = useState<TestType>("prompt-injection");
