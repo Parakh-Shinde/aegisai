@@ -67,6 +67,9 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
     mem_limit: 128m
     cpus: 0.5
     pids_limit: 128
