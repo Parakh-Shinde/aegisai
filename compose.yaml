@@ -213,6 +213,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    environment:
+      VITE_API_ORIGIN: "http://127.0.0.1:8000 http://localhost:8000"
     ports:
       - 127.0.0.1:5173:8080
     restart: unless-stopped
