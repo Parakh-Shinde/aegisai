@@ -55,7 +55,7 @@ jobs:
           AEGISAI_TOOL_RUNNER_TOKEN: "ci-only-tool-runner-token-not-for-deployment-012345"
           AEGISAI_REDIS_URL: "redis://127.0.0.1:6379/0"
           DATABASE_URL: "postgresql+psycopg://ci:ci@127.0.0.1:5432/ci"
-        run: python scripts/verify_runtime_config.py
+        run: python -m scripts.verify_runtime_config
 
       - name: Scan Python dependencies
         run: pip-audit -r backend/requirements.txt
