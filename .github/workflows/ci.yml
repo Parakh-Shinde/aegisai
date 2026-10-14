@@ -35,6 +35,28 @@ jobs:
           OLLAMA_BASE_URL: "http://127.0.0.1:11434"
         run: pytest
 
+      - name: Validate production runtime configuration
+        working-directory: backend
+        env:
+          AEGISAI_ENVIRONMENT: production
+          AEGISAI_AUTH_REQUIRED: "true"
+          AEGISAI_EXPOSE_API_DOCS: "false"
+          AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP: "false"
+          AEGISAI_ALLOW_REMOTE_OLLAMA: "false"
+          AEGISAI_ALLOW_REMOTE_APPLICATION_TARGETS: "false"
+          AEGISAI_AGENT_ENFORCEMENT_MODE: enforce
+          AEGISAI_ASYNC_CAMPAIGNS: "true"
+          AEGISAI_CORS_ORIGINS: "https://aegisai.example.invalid"
+          AEGISAI_TRUSTED_HOSTS: "aegisai.example.invalid,api,localhost,127.0.0.1"
+          AEGISAI_JWT_SECRET: "ci-only-not-a-production-secret-0123456789abcdef"
+          AEGISAI_EVIDENCE_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          AEGISAI_MFA_ENCRYPTION_KEY: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+          AEGISAI_AGENT_GATEWAY_TOKEN: "ci-only-gateway-token-not-for-deployment-012345"
+          AEGISAI_TOOL_RUNNER_TOKEN: "ci-only-tool-runner-token-not-for-deployment-012345"
+          AEGISAI_REDIS_URL: "redis://127.0.0.1:6379/0"
+          DATABASE_URL: "postgresql+psycopg://ci:ci@127.0.0.1:5432/ci"
+        run: python scripts/verify_runtime_config.py
+
       - name: Scan Python dependencies
         run: pip-audit -r backend/requirements.txt
 
