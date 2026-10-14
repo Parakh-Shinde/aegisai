@@ -36,3 +36,7 @@ build/
 backend/.venv/
 __pycache__/
 *.py[cod]
+
+# Production deployment secrets; keep examples tracked, real values private.
+.env.production
+.env.production.local
