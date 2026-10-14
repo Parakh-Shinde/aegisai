@@ -94,7 +94,7 @@ make test
 make config-check
 docker compose --env-file .env.production \
   -f compose.yaml -f compose.production.yaml run --rm --no-deps api \
-  python scripts/verify_runtime_config.py
+  python -m scripts.verify_runtime_config
 ```
 
 The final command validates the effective production settings inside the backend
