@@ -92,9 +92,13 @@ Run the existing release checks before deployment:
 make lint
 make test
 make config-check
+docker compose --env-file .env.production \
+  -f compose.yaml -f compose.production.yaml run --rm --no-deps api \
+  python scripts/verify_runtime_config.py
 ```
 
-The exact commands depend on the current local Docker image and Makefile. Review
+The final command validates the effective production settings inside the backend
+container's Python environment. Review
 any failure; do not bypass checks to get a green result. Review the rendered
 Compose security properties privately if needed, but do not publish its full
 output because it can contain resolved secret values.
@@ -107,7 +111,8 @@ output because it can contain resolved secret values.
   Follow the evidence migration procedure and test it on a restorable copy first.
 - Confirm the initial administrator bootstrap endpoint and one-time bootstrap token
   process with the application tests. Treat the bootstrap token as a high-value
-  secret and rotate/remove it after account creation if the application supports it.
+  secret. After account creation, rotate it to a new random unused value because
+  the production Compose overlay requires a non-empty bootstrap token.
 - Verify MFA enrollment and recovery, tenant isolation, API-token scopes, login
   rate limits, CORS/trusted-host checks, and unauthorized API responses.
 - Review model endpoint allowlists and ensure no sensitive data is sent to a
