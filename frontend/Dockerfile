@@ -19,6 +19,9 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
+# Default to same-origin-only browser connections in local and production builds.
+ENV VITE_API_ORIGIN=""
+
 # Only substitute the API origin in the Nginx template. Other Nginx variables
 # such as $uri must remain intact when the container starts.
 ENV NGINX_ENVSUBST_FILTER="^VITE_API_ORIGIN$"
