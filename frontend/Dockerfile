@@ -19,7 +19,11 @@ RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Only substitute the API origin in the Nginx template. Other Nginx variables
+# such as $uri must remain intact when the container starts.
+ENV NGINX_ENVSUBST_FILTER="^VITE_API_ORIGIN$"
+
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 8080
