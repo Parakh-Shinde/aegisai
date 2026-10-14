@@ -88,6 +88,14 @@ It tests model behavior against prompt injection, jailbreak attempts, sensitive 
 
 ---
 
+
+
+> **Production deployment:** the self-managed HTTPS Compose overlay and launch
+> gates are documented in [Production Deployment](docs/production-deployment.md).
+> This is not a claim that a free hosting tier is suitable for confidential data;
+> public production remains gated on storage, backup/restore, monitoring, and
+> security review.
+
 ## Why I Built This
 
 AI models are now being added to products, internal tools, customer support systems, coding assistants, SOC workflows, and automation pipelines.

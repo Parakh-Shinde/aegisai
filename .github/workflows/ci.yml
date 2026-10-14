@@ -156,3 +156,17 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-path: backend/build/release-integrity.json
+
+  production-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate production Compose overlay without starting services
+        run: |
+          docker compose --env-file .env.production.example \
+            -f compose.yaml -f compose.production.yaml config --quiet
+
+      - name: Ensure real production env file is ignored
+        run: git check-ignore --quiet .env.production
