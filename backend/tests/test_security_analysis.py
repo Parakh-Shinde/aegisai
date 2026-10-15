@@ -6,8 +6,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from app.api.security_tests import (  # noqa: E402
     analyze_jailbreak_response,
-    analyze_prompt_injection_response,
     analyze_privacy_response,
+    analyze_prompt_injection_response,
     analyze_sensitive_data_response,
     analyze_tool_injection_response,
     build_category_breakdown,
