@@ -17,7 +17,7 @@ ENV VITE_ASYNC_CAMPAIGNS=$VITE_ASYNC_CAMPAIGNS
 
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.31.5-alpine3.24
 
 # Default to same-origin-only browser connections in local and production builds.
 ENV VITE_API_ORIGIN=""
