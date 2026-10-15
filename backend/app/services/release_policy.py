@@ -12,6 +12,9 @@ class ReleasePolicyError(RuntimeError):
     """Raised when a committed evaluation asset violates the approved policy."""
 
 
+RUNTIME_MINIMUM_CAMPAIGN_TESTS = 10
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -155,6 +158,11 @@ def validate_release_policy(
     ):
         raise ReleasePolicyError(
             "Release policy minimum_campaign_tests must be a positive integer."
+        )
+    if minimum_campaign_tests != RUNTIME_MINIMUM_CAMPAIGN_TESTS:
+        raise ReleasePolicyError(
+            "Release policy minimum_campaign_tests must match the runtime "
+            f"minimum of {RUNTIME_MINIMUM_CAMPAIGN_TESTS}."
         )
 
     for key, expected_type in required_requirement_types.items():
