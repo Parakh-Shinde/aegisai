@@ -92,7 +92,34 @@ def test_release_policy_requires_exact_corpus_matching(tmp_path: Path) -> None:
         ),
     )
 
-    with pytest.raises(ReleasePolicyError, match="exact evaluation-corpus"):
+    with pytest.raises(ReleasePolicyError, match="safety requirements"):
+        validate_release_policy(
+            policy_path=policy_path,
+            corpus_dir=BACKEND_ROOT / "app" / "corpus",
+            source_revision="test-revision",
+        )
+
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "require_human_review",
+        "block_new_leaks",
+        "block_new_high_risk_findings",
+        "require_exact_corpus_match",
+    ],
+)
+def test_release_policy_rejects_disabled_safety_requirement(
+    tmp_path: Path,
+    requirement: str,
+) -> None:
+    def disable_requirement(policy: dict[str, Any]) -> None:
+        policy["release_requirements"][requirement] = False
+
+    policy_path = _write_policy_copy(tmp_path, disable_requirement)
+
+    with pytest.raises(ReleasePolicyError, match="safety requirements"):
         validate_release_policy(
             policy_path=policy_path,
             corpus_dir=BACKEND_ROOT / "app" / "corpus",
