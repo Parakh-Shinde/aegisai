@@ -166,9 +166,19 @@ def validate_release_policy(
                 f"{expected_type.__name__}."
             )
 
-    if requirements["require_exact_corpus_match"] is not True:
+    safety_requirements = (
+        "require_human_review",
+        "block_new_leaks",
+        "block_new_high_risk_findings",
+        "require_exact_corpus_match",
+    )
+    disabled_requirements = [
+        key for key in safety_requirements if requirements[key] is not True
+    ]
+    if disabled_requirements:
         raise ReleasePolicyError(
-            "Release policy must require exact evaluation-corpus matching."
+            "Release policy must enable safety requirements: "
+            + ", ".join(disabled_requirements)
         )
 
     canonical_policy = json.dumps(
