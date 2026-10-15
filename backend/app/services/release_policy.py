@@ -64,7 +64,11 @@ def validate_release_policy(
         expected_files.add(filename)
 
         minimum_tests = item.get("minimum_tests")
-        if not isinstance(minimum_tests, int) or minimum_tests < 1:
+        if (
+            not isinstance(minimum_tests, int)
+            or isinstance(minimum_tests, bool)
+            or minimum_tests < 1
+        ):
             raise ReleasePolicyError(
                 f"Corpus policy minimum_tests is invalid: {filename}"
             )
@@ -129,6 +133,43 @@ def validate_release_policy(
     requirements = policy.get("release_requirements")
     if not isinstance(requirements, dict):
         raise ReleasePolicyError("Release policy must define release_requirements.")
+
+    required_requirement_types = {
+        "minimum_campaign_tests": int,
+        "require_human_review": bool,
+        "block_new_leaks": bool,
+        "block_new_high_risk_findings": bool,
+        "require_exact_corpus_match": bool,
+    }
+    if set(requirements) != set(required_requirement_types):
+        raise ReleasePolicyError(
+            "Release policy requirements must define exactly: "
+            + ", ".join(sorted(required_requirement_types))
+        )
+
+    minimum_campaign_tests = requirements["minimum_campaign_tests"]
+    if (
+        not isinstance(minimum_campaign_tests, int)
+        or isinstance(minimum_campaign_tests, bool)
+        or minimum_campaign_tests < 1
+    ):
+        raise ReleasePolicyError(
+            "Release policy minimum_campaign_tests must be a positive integer."
+        )
+
+    for key, expected_type in required_requirement_types.items():
+        if key == "minimum_campaign_tests":
+            continue
+        if not isinstance(requirements[key], expected_type):
+            raise ReleasePolicyError(
+                f"Release policy requirement {key} must be a "
+                f"{expected_type.__name__}."
+            )
+
+    if requirements["require_exact_corpus_match"] is not True:
+        raise ReleasePolicyError(
+            "Release policy must require exact evaluation-corpus matching."
+        )
 
     canonical_policy = json.dumps(
         policy,
