@@ -134,6 +134,9 @@ jobs:
             --build-arg VITE_ASYNC_CAMPAIGNS=true
           docker build --pull -t aegisai-ocr-runner:ci ./tools/ocr-runner
           docker build --pull -t aegisai-promptfoo-runner:ci ./tools/promptfoo-runner
+          docker pull postgres:16-alpine
+          docker pull redis:7-alpine
+          docker pull caddy:2-alpine
 
       - name: Scan production container images for high and critical vulnerabilities
         shell: bash
@@ -143,7 +146,10 @@ jobs:
             aegisai-api:ci \
             aegisai-web:ci \
             aegisai-ocr-runner:ci \
-            aegisai-promptfoo-runner:ci; do
+            aegisai-promptfoo-runner:ci \
+            postgres:16-alpine \
+            redis:7-alpine \
+            caddy:2-alpine; do
             echo "Scanning $image"
             trivy image --severity HIGH,CRITICAL --exit-code 1 --format table "$image" || status=1
           done
