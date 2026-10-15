@@ -16,11 +16,9 @@ WORKDIR /opt/aegisai
 
 # Override the affected transitive dependency until Promptfoo publishes a patched
 # dependency tree; the CI image scan verifies the resolved production tree.
-RUN npm init -y \
-    && npm pkg set "dependencies.promptfoo=${PROMPTFOO_VERSION}" \
-        "overrides.basic-ftp=6.2.1" \
+RUN printf '{"name":"aegisai-promptfoo-runner","private":true,"dependencies":{"promptfoo":"%s"},"overrides":{"basic-ftp":"6.2.1","ip-address":"10.3.1","picomatch@^4.0.0":"4.0.4","brace-expansion@^1.0.0":"1.1.20","brace-expansion@^2.0.0":"2.1.6","brace-expansion@^3.0.0":"3.0.8","brace-expansion@^5.0.0":"5.0.11"}}' "$PROMPTFOO_VERSION" > package.json \
     && npm install --omit=dev --no-audit --no-fund \
-    && npm ls basic-ftp \
+    && npm ls basic-ftp brace-expansion ip-address picomatch \
     && promptfoo --version
 
 COPY runner.mjs /opt/aegisai/runner.mjs
