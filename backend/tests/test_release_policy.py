@@ -1,7 +1,7 @@
 import json
 import shutil
-from typing import Any, Callable
 from pathlib import Path
+from typing import Any, Callable
 
 import pytest
 from app.services.release_policy import ReleasePolicyError, validate_release_policy
