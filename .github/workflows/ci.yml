@@ -125,6 +125,30 @@ jobs:
       - name: Enforce high and critical configuration findings
         run: trivy config --severity HIGH,CRITICAL --exit-code 1 --format table .
 
+      - name: Build production container images
+        run: |
+          docker build --pull -t aegisai-api:ci ./backend
+          docker build --pull -t aegisai-web:ci ./frontend \
+            --build-arg VITE_API_BASE_URL=/api \
+            --build-arg VITE_AUTH_REQUIRED=true \
+            --build-arg VITE_ASYNC_CAMPAIGNS=true
+          docker build --pull -t aegisai-ocr-runner:ci ./tools/ocr-runner
+          docker build --pull -t aegisai-promptfoo-runner:ci ./tools/promptfoo-runner
+
+      - name: Scan production container images for high and critical vulnerabilities
+        shell: bash
+        run: |
+          status=0
+          for image in \
+            aegisai-api:ci \
+            aegisai-web:ci \
+            aegisai-ocr-runner:ci \
+            aegisai-promptfoo-runner:ci; do
+            echo "Scanning $image"
+            trivy image --severity HIGH,CRITICAL --exit-code 1 --format table "$image" || status=1
+          done
+          exit "$status"
+
   infrastructure:
     runs-on: ubuntu-latest
     permissions:
