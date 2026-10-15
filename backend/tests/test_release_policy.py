@@ -1,5 +1,6 @@
 import json
 import shutil
+from typing import Any, Callable
 from pathlib import Path
 
 import pytest
@@ -41,7 +42,10 @@ def test_modified_corpus_fails_the_release_policy(tmp_path: Path) -> None:
 
 
 
-def _write_policy_copy(tmp_path: Path, mutate) -> Path:
+def _write_policy_copy(
+    tmp_path: Path,
+    mutate: Callable[[dict[str, Any]], object],
+) -> Path:
     source = BACKEND_ROOT / "release" / "evaluation-policy.json"
     policy = json.loads(source.read_text(encoding="utf-8"))
     mutate(policy)
