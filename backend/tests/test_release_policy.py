@@ -126,3 +126,20 @@ def test_release_policy_rejects_disabled_safety_requirement(
             corpus_dir=BACKEND_ROOT / "app" / "corpus",
             source_revision="test-revision",
         )
+
+
+
+def test_release_policy_rejects_runtime_minimum_mismatch(tmp_path: Path) -> None:
+    policy_path = _write_policy_copy(
+        tmp_path,
+        lambda policy: policy["release_requirements"].update(
+            {"minimum_campaign_tests": 11}
+        ),
+    )
+
+    with pytest.raises(ReleasePolicyError, match="match the runtime minimum"):
+        validate_release_policy(
+            policy_path=policy_path,
+            corpus_dir=BACKEND_ROOT / "app" / "corpus",
+            source_revision="test-revision",
+        )
