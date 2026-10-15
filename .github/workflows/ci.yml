@@ -110,6 +110,15 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
+      - name: Archive raw vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisai-trivy-sarif
+          path: trivy-results.sarif
+          if-no-files-found: warn
+          retention-days: 7
+
   infrastructure:
     runs-on: ubuntu-latest
     permissions:
