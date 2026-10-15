@@ -1,4 +1,5 @@
 import pytest
+
 from app.models.tool_evaluations import ToolTargetRequest
 from app.services.promptfoo_adapter import (
     PROMPTFOO_AI_SECURITY_BASELINE_SUITE_NAME,
@@ -138,3 +139,58 @@ def test_live_application_target_accepts_exact_local_allowlist(
     )
 
     assert target.endpoint == endpoint
+
+
+def test_promptfoo_report_parser_ignores_non_finite_scores() -> None:
+    report = {
+        "results": [
+            {"success": True, "score": float("nan")},
+            {"success": True, "score": float("inf")},
+            {"success": True, "score": float("-inf")},
+            {"success": True, "score": 0.75},
+        ]
+    }
+
+    cases = parse_promptfoo_report(report)
+
+    assert [case.score for case in cases] == [None, None, None, 0.75]
+
+
+def test_promptfoo_report_parser_handles_malformed_rows_and_result_shapes() -> None:
+    assert parse_promptfoo_report({"results": "not-a-list"}) == []
+    assert parse_promptfoo_report({"results": {"results": "not-a-list"}}) == []
+
+    cases = parse_promptfoo_report(
+        {
+            "results": [
+                None,
+                "not-a-row",
+                {"success": True, "metadata": {"aegisai_case_id": "case-ok"}},
+            ]
+        }
+    )
+
+    assert len(cases) == 1
+    assert cases[0].external_case_id == "case-ok"
+    assert cases[0].outcome == "passed"
+
+
+def test_promptfoo_report_parser_uses_safe_fallback_ids_and_outcomes() -> None:
+    cases = parse_promptfoo_report(
+        {
+            "results": [
+                {"success": None},
+                {"success": False, "failureReason": "evaluation error"},
+                {"success": "true"},
+            ]
+        }
+    )
+
+    assert [case.external_case_id for case in cases] == [
+        "promptfoo-case-1",
+        "promptfoo-case-2",
+        "promptfoo-case-3",
+    ]
+    assert [case.outcome for case in cases] == ["skipped", "error", "skipped"]
+
+

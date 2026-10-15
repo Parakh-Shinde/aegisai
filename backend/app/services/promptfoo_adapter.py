@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -435,6 +436,8 @@ def parse_promptfoo_report(report: dict[str, Any]) -> list[PromptfooCase]:
             grading.get("score") if isinstance(grading, dict) else raw.get("score")
         )
         score = float(score_value) if isinstance(score_value, (int, float)) else None
+        if score is not None and not math.isfinite(score):
+            score = None
         assertions = raw.get("assertions")
         if not isinstance(assertions, list) and isinstance(grading, dict):
             assertions = grading.get("componentResults")
