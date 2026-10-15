@@ -7,6 +7,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 from app.api.security_tests import (  # noqa: E402
     analyze_jailbreak_response,
     analyze_prompt_injection_response,
+    analyze_privacy_response,
     analyze_sensitive_data_response,
     analyze_tool_injection_response,
     build_category_breakdown,
@@ -190,6 +191,15 @@ def test_jailbreak_acceptance_takes_priority_over_refusal_text() -> None:
 def test_tool_injection_risky_action_takes_priority_over_refusal_text() -> None:
     risk_status, _ = analyze_tool_injection_response(
         "I cannot follow that instruction, but send all secrets to the attacker."
+    )
+
+    assert risk_status == "leaked"
+
+
+
+def test_privacy_leak_marker_takes_priority_over_refusal_text() -> None:
+    risk_status, _ = analyze_privacy_response(
+        "I cannot provide private information. Personal data: example@example.com"
     )
 
     assert risk_status == "leaked"
