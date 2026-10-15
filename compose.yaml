@@ -90,7 +90,7 @@ services:
         - CMD
         - python
         - -c
-        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')"
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/ready')"
       interval: 10s
       timeout: 5s
       retries: 6
