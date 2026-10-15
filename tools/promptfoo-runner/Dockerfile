@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:22-alpine3.24
 
 ARG PROMPTFOO_VERSION=0.124.1
 ENV NODE_ENV=production \
@@ -9,11 +9,20 @@ ENV NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     PROMPTFOO_DISABLE_TELEMETRY=true \
     PROMPTFOO_DISABLE_UPDATE_CHECK=true \
-    AEGISAI_PROMPTFOO_VERSION=${PROMPTFOO_VERSION}
+    AEGISAI_PROMPTFOO_VERSION=${PROMPTFOO_VERSION} \
+    PATH=/opt/aegisai/node_modules/.bin:$PATH
 
-RUN npm install --global --omit=dev "promptfoo@${PROMPTFOO_VERSION}"
+WORKDIR /opt/aegisai
 
-WORKDIR /tmp
+# Override the affected transitive dependency until Promptfoo publishes a patched
+# dependency tree; the CI image scan verifies the resolved production tree.
+RUN npm init -y \
+    && npm pkg set "dependencies.promptfoo=${PROMPTFOO_VERSION}" \
+        "overrides.basic-ftp=6.2.1" \
+    && npm install --omit=dev --no-audit --no-fund \
+    && npm ls basic-ftp \
+    && promptfoo --version
+
 COPY runner.mjs /opt/aegisai/runner.mjs
 
 USER node
