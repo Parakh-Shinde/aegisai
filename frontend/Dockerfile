@@ -30,3 +30,6 @@ COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 8080
+
+# Run the web server with the unprivileged UID used by nginxinc/nginx-unprivileged.
+USER 101:101
