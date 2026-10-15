@@ -5,13 +5,13 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 import jwt  # noqa: E402
 import pytest  # noqa: E402
-from cryptography.fernet import Fernet  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
 from app.core.auth import create_access_token  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.core.execution import ModelCapacityError, ModelExecutionGate  # noqa: E402
 from app.db.models import User, UserRole  # noqa: E402
 from app.main import RequestBodyLimitMiddleware, app  # noqa: E402
+from cryptography.fernet import Fernet  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 
 def test_production_requires_explicit_cors_and_trusted_hosts(
