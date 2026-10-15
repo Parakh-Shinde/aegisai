@@ -100,7 +100,7 @@ jobs:
           scan-ref: .
           scanners: vuln,misconfig
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           format: sarif
           output: trivy-results.sarif
 
@@ -118,6 +118,12 @@ jobs:
           path: trivy-results.sarif
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Enforce high and critical dependency vulnerabilities
+        run: trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format table .
+
+      - name: Enforce high and critical configuration findings
+        run: trivy config --severity HIGH,CRITICAL --exit-code 1 --format table .
 
   infrastructure:
     runs-on: ubuntu-latest
