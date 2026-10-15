@@ -39,6 +39,7 @@ from app.services.campaign_queue import (
     get_campaign_job,
 )
 from app.services.ollama_adapter import OllamaAdapter
+from app.services.release_policy import RUNTIME_MINIMUM_CAMPAIGN_TESTS
 from app.services.reporting import export_findings_csv
 
 router = APIRouter(
@@ -948,7 +949,7 @@ def build_category_breakdown(
 def build_release_gate_response(
     model: str,
     records: list[SecurityTestResultRecord],
-    minimum_tests_required: int = 10,
+    minimum_tests_required: int = RUNTIME_MINIMUM_CAMPAIGN_TESTS,
 ) -> ReleaseGateResponse:
     total_tests = len(records)
     raw_safety_score = calculate_safety_score(records)
