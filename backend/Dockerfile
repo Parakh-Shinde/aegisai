@@ -8,15 +8,13 @@ WORKDIR /app
 
 RUN addgroup --system aegisai && adduser --system --ingroup aegisai aegisai
 
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements-dev.txt
+# Production image installs runtime dependencies only; test and lint tooling stays in CI.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
-COPY scripts ./scripts
-COPY release ./release
-COPY tests ./tests
 
 RUN mkdir /data && chown -R aegisai:aegisai /app /data
 
