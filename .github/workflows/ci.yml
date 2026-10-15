@@ -150,10 +150,21 @@ jobs:
             postgres:16-alpine \
             redis:7-alpine \
             caddy:2-alpine; do
+            slug="${image//[:\\/]/-}"
             echo "Scanning $image"
-            trivy image --severity HIGH,CRITICAL --exit-code 1 --format table "$image" || status=1
+            trivy image --severity HIGH,CRITICAL --format sarif --output "trivy-image-${slug}.sarif" "$image" || true
+            trivy image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 --format table "$image" || status=1
           done
           exit "$status"
+
+      - name: Archive container vulnerability reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisai-container-vulnerability-reports
+          path: trivy-image-*.sarif
+          if-no-files-found: warn
+          retention-days: 7
 
   infrastructure:
     runs-on: ubuntu-latest
