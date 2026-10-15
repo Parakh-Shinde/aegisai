@@ -1,4 +1,4 @@
-FROM node:22-alpine3.24
+FROM node:24-alpine3.24
 
 ARG PROMPTFOO_VERSION=0.124.1
 ENV NODE_ENV=production \
