@@ -134,9 +134,9 @@ jobs:
             --build-arg VITE_ASYNC_CAMPAIGNS=true
           docker build --pull -t aegisai-ocr-runner:ci ./tools/ocr-runner
           docker build --pull -t aegisai-promptfoo-runner:ci ./tools/promptfoo-runner
-          docker pull postgres:16-alpine
+          docker pull postgres:16.15-bookworm
           docker pull redis:7.4.11-bookworm
-          docker pull caddy:2.11.7-alpine
+          docker build --pull -t aegisai-caddy:ci -f infra/caddy/Dockerfile .
 
       - name: Scan production container images for high and critical vulnerabilities
         shell: bash
@@ -147,9 +147,9 @@ jobs:
             aegisai-web:ci \
             aegisai-ocr-runner:ci \
             aegisai-promptfoo-runner:ci \
-            postgres:16-alpine \
+            postgres:16.15-bookworm \
             redis:7.4.11-bookworm \
-            caddy:2.11.7-alpine; do
+            aegisai-caddy:ci; do
             slug="${image//:/-}"
             slug="${slug//\//-}"
             echo "Scanning $image"
