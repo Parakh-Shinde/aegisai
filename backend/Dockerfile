@@ -17,6 +17,8 @@ RUN apt-get update \
 
 COPY app ./app
 COPY migrations ./migrations
+COPY scripts ./scripts
+COPY release ./release
 COPY alembic.ini ./
 
 RUN mkdir /data && chown -R aegisai:aegisai /app /data
