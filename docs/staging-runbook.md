@@ -56,7 +56,7 @@ make release-gate
 docker compose --env-file .env.production \
   -f compose.yaml -f compose.production.yaml config --quiet
 docker compose --env-file .env.production \
-  -f compose.yaml -f compose.production.yaml run --rm --no-deps api \
+  -f compose.yaml -f compose.production.yaml run --build --rm --no-deps api \
   python scripts/verify_runtime_config.py
 ```
 
