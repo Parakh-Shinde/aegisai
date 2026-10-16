@@ -15,4 +15,8 @@ COPY pyproject.toml ./pyproject.toml
 COPY backend ./backend
 
 # This image is for tests and static analysis only. It is never used as a runtime service.
+RUN useradd --create-home --uid 10001 test-runner \
+    && chown -R test-runner:test-runner /workspace
+USER test-runner
+
 CMD ["pytest", "-q"]
