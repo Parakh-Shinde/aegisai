@@ -52,7 +52,9 @@ From a clean checkout of the merged commit on the staging host:
 ```bash
 make lint
 make test
-make release-gate
+docker compose --env-file .env.production \
+  -f compose.yaml -f compose.production.yaml run --build --rm --no-deps api \
+  python scripts/release_gate.py
 docker compose --env-file .env.production \
   -f compose.yaml -f compose.production.yaml config --quiet
 docker compose --env-file .env.production \
