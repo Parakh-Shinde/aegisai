@@ -22,7 +22,10 @@ services:
     pids_limit: 256
 
   redis:
-    image: redis:7.4.11-bookworm
+    image: aegisai-redis:production
+    build:
+      context: .
+      dockerfile: infra/redis/Dockerfile
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
     volumes:
       - aegisai-redis:/data
