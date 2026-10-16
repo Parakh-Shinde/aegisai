@@ -135,7 +135,7 @@ jobs:
           docker build --pull -t aegisai-ocr-runner:ci ./tools/ocr-runner
           docker build --pull -t aegisai-promptfoo-runner:ci ./tools/promptfoo-runner
           docker build --pull -t aegisai-postgres:ci -f infra/postgres/Dockerfile .
-          docker pull redis:7.4.11-bookworm
+          docker build --pull -t aegisai-redis:ci -f infra/redis/Dockerfile .
           docker build --pull -t aegisai-caddy:ci -f infra/caddy/Dockerfile .
 
       - name: Scan production container images for high and critical vulnerabilities
@@ -148,7 +148,7 @@ jobs:
             aegisai-ocr-runner:ci \
             aegisai-promptfoo-runner:ci \
             aegisai-postgres:ci \
-            redis:7.4.11-bookworm \
+            aegisai-redis:ci \
             aegisai-caddy:ci; do
             slug="${image//:/-}"
             slug="${slug//\//-}"
