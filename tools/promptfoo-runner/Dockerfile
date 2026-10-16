@@ -20,7 +20,6 @@ RUN printf '{"name":"aegisai-promptfoo-runner","private":true,"dependencies":{"p
     && npm install --omit=dev --no-audit --no-fund \
     && npm ls basic-ftp brace-expansion ip-address picomatch \
     && promptfoo --version \
-    # npm is only needed during image construction; remove its vulnerable bundled tree from runtime. \
     && rm -rf /usr/local/lib/node_modules/npm
 
 COPY runner.mjs /opt/aegisai/runner.mjs
