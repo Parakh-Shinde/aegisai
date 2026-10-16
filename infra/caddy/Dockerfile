@@ -11,3 +11,6 @@ RUN xcaddy build v2.11.7 --with golang.org/x/net@v0.60.0
 # executable with the rebuilt binary.
 FROM caddy:2.11.7-alpine
 COPY --from=builder /src/caddy /usr/bin/caddy
+
+# Run the proxy as the unprivileged user provided by the official image.
+USER caddy
