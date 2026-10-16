@@ -135,8 +135,8 @@ jobs:
           docker build --pull -t aegisai-ocr-runner:ci ./tools/ocr-runner
           docker build --pull -t aegisai-promptfoo-runner:ci ./tools/promptfoo-runner
           docker pull postgres:16-alpine
-          docker pull redis:7-alpine
-          docker pull caddy:2-alpine
+          docker pull redis:7-alpine3.23
+          docker pull caddy:2.11.7-alpine
 
       - name: Scan production container images for high and critical vulnerabilities
         shell: bash
@@ -148,8 +148,8 @@ jobs:
             aegisai-ocr-runner:ci \
             aegisai-promptfoo-runner:ci \
             postgres:16-alpine \
-            redis:7-alpine \
-            caddy:2-alpine; do
+            redis:7-alpine3.23 \
+            caddy:2.11.7-alpine; do
             slug="${image//:/-}"
             slug="${slug//\//-}"
             echo "Scanning $image"
