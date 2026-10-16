@@ -7,3 +7,6 @@ RUN go install github.com/tianon/gosu@latest
 
 FROM redis:7.4.11-bookworm
 COPY --from=gosu-builder /go/bin/gosu /usr/local/bin/gosu
+
+# Run the Redis server as the unprivileged account supplied by the base image.
+USER redis
