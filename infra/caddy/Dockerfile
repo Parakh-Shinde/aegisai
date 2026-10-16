@@ -5,12 +5,16 @@ RUN apk add --no-cache git
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 WORKDIR /src
-RUN xcaddy build v2.11.7 --with golang.org/x/net@v0.60.0
+RUN xcaddy build v2.11.7 --replace golang.org/x/net=golang.org/x/net@v0.60.0
 
 # Keep the upstream runtime filesystem and configuration, replacing only its
 # executable with the rebuilt binary.
 FROM caddy:2.11.7-alpine
 COPY --from=builder /src/caddy /usr/bin/caddy
 
-# Run the proxy as the unprivileged user provided by the official image.
+# Create a dedicated unprivileged user and grant access to Caddy state.
+RUN addgroup -S caddy \
+    && adduser -S -D -H -G caddy caddy \
+    && chown -R caddy:caddy /data /config
+
 USER caddy
