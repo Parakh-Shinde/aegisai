@@ -1,73 +1,119 @@
 # Staging Runbook
 
-This runbook deploys AEGISAI as a controlled staging environment. It keeps the
-Compose ports loopback-only; a separately managed TLS reverse proxy may be
-placed in front of it after the hostname and certificate are verified.
+This runbook deploys AEGISAI to a host you administer using the HTTPS Caddy
+overlay. It is intended for **controlled staging with synthetic or approved test
+data**, not as approval to accept customer data or launch a public SaaS.
 
-## 1. Set staging configuration
+## 1. Confirm the staging host
 
-Copy `.env.example` to `.env` on the staging host. Do not commit `.env`.
-Set at least the following values, replacing every placeholder with a secret
-from the deployment secret manager:
+Before starting, confirm that you control the host and DNS name, TCP ports 80
+and 443 can reach it, Docker Engine/Compose are supported, and the host firewall
+does not expose PostgreSQL, Redis, or the API directly. The base Compose file
+binds the API and frontend diagnostic ports to loopback; Caddy is the public
+entry point when the production overlay is enabled.
 
-```env
-POSTGRES_PASSWORD=<unique-database-password>
-AEGISAI_ENVIRONMENT=production
-AEGISAI_AUTH_REQUIRED=true
-VITE_AUTH_REQUIRED=true
-AEGISAI_ASYNC_CAMPAIGNS=true
-VITE_ASYNC_CAMPAIGNS=true
-AEGISAI_JWT_SECRET=<unique-32-plus-character-secret>
-AEGISAI_EVIDENCE_ENCRYPTION_KEY=<valid-fernet-key>
-AEGISAI_BOOTSTRAP_TOKEN=<one-time-bootstrap-secret>
-AEGISAI_CORS_ORIGINS=https://staging.example.com
-AEGISAI_TRUSTED_HOSTS=staging.example.com,127.0.0.1,localhost
-AEGISAI_EXPOSE_API_DOCS=false
-AEGISAI_REDIS_URL=redis://redis:6379/0
-```
+If you do not have a staging host and DNS name yet, stop at preflight. Do not
+deploy to a personal workstation or expose the stack directly to the internet.
 
-Set `VITE_API_BASE_URL` to the TLS API URL exposed by the reverse proxy, for
-example `https://api-staging.example.com`. Add that dashboard URL to
-`AEGISAI_CORS_ORIGINS` and its API host name to `AEGISAI_TRUSTED_HOSTS`.
+## 2. Create a protected staging environment file
 
-Use a private network or managed TLS Redis service outside Compose. The bundled
-Redis service is suitable only when it stays on the private Compose network.
-
-## 2. Start and validate
+On the staging host:
 
 ```bash
-make doctor
-make restart
-docker compose ps
-curl --fail http://127.0.0.1:8000/health
-docker compose logs --tail=100 worker
+cp .env.production.example .env.production
+chmod 600 .env.production
 ```
 
-Expected services are `postgres`, `redis`, `api`, `worker`, and `web`. The API
-and web ports must remain bound to `127.0.0.1` unless a reviewed network design
-changes that intentionally.
-
-Sign in with the bootstrapped Administrator account, run a basic campaign, and
-confirm that the dashboard changes from “Campaign queued” to completed. Check
-the worker log for a successful job and confirm `/audit-logs/verify` reports a
-valid chain.
-
-## 3. Protect existing data and recovery
-
-Before adding customer data, encrypt historical plaintext evidence once:
+Edit `.env.production` locally. Never commit or paste it into chat, logs,
+issues, or pull requests. Replace **every** example value with an independently
+generated secret. Use `openssl rand -hex 32` separately for the database
+password, JWT secret, agent gateway token, tool-runner token, and bootstrap
+token. Generate two independent Fernet keys for evidence and MFA encryption
+using:
 
 ```bash
-make encrypt-evidence
-make backup
+python3 -c 'import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'
 ```
 
-Store the generated PostgreSQL backup outside the staging host using encrypted
-storage, and regularly test restoration in a separate disposable environment.
+Set `AEGISAI_DOMAIN` to the real staging DNS name and `ACME_EMAIL` to an
+address you control. Do not use the example domain or any `REPLACE_...` value.
+The production overlay configures same-origin routing, so the frontend API base
+is `/api`; do not change it to a separate API hostname unless the proxy and
+CORS design are deliberately changed and reviewed.
 
-## 4. Release gate
+Keep remote model/application targets disabled unless the provider, data
+handling terms, and exact endpoint allowlist have been reviewed. Do not send
+confidential prompts or evidence to public/free model endpoints.
 
-Do not expose this stack directly to the internet. Before promotion beyond
-controlled staging, complete the platform controls in
-`security-deployment-checklist.md`: TLS/HSTS, managed secrets, private and
-encrypted backups, monitoring/alerting, administrator MFA or SSO, isolated
-egress-controlled workers, and an independent penetration test.
+## 3. Run preflight checks before starting services
+
+From a clean checkout of the merged commit on the staging host:
+
+```bash
+make lint
+make test
+docker compose --env-file .env.production \
+  -f compose.yaml -f compose.production.yaml run --build --rm --no-deps api \
+  python scripts/release_gate.py
+docker compose --env-file .env.production \
+  -f compose.yaml -f compose.production.yaml config --quiet
+docker compose --env-file .env.production \
+  -f compose.yaml -f compose.production.yaml run --build --rm --no-deps api \
+  python scripts/verify_runtime_config.py
+```
+
+These checks should all pass. The configuration validator reports only safe
+summary fields, not secret values. Do not publish the rendered Compose output,
+because resolved configuration can contain secrets. Do not bypass a failing
+gate to force deployment.
+
+## 4. Backups and first start
+
+Before importing any existing evidence, take a backup and test restoration in a
+separate disposable environment. Keep encrypted off-host copies; a Docker named
+volume is not a backup plan. If migrating an existing local database, follow
+the evidence encryption and restore procedures before allowing real data.
+
+Once preflight is green and the operator has confirmed DNS, firewall, secrets,
+and backups:
+
+```bash
+docker compose --env-file .env.production \
+  -f compose.yaml -f compose.production.yaml up --build -d
+docker compose --env-file .env.production \
+  -f compose.yaml -f compose.production.yaml ps
+curl --fail --silent --show-error https://YOUR_STAGING_DOMAIN/healthz
+curl --fail --silent --show-error https://YOUR_STAGING_DOMAIN/api/health
+```
+
+Replace `YOUR_STAGING_DOMAIN` with the configured host. Confirm the API
+readiness endpoint is healthy, migrations completed, and worker jobs execute.
+Verify unauthenticated protected API requests are rejected and `/docs` and
+`/openapi.json` are not publicly exposed. Complete an authenticated smoke
+test, run a small synthetic-data campaign, verify the audit chain, and record
+the results.
+
+Immediately after creating the initial administrator, rotate the bootstrap
+token to a new unique value and redeploy the API/worker. Keep MFA enabled for
+administrative accounts and retain the independent MFA encryption key securely.
+
+## 5. Staging exit criteria
+
+Do not promote beyond controlled staging until all of these are verified:
+
+- CI and local backend/frontend tests, lint, runtime configuration, and release
+  gate pass on the exact deployed commit.
+- TLS and hostname checks pass; only ports 80/443 are externally reachable.
+- Authentication, role checks, MFA, token revocation, and organization isolation
+  have been tested with distinct accounts.
+- PostgreSQL backup and a restore drill have succeeded; backups are encrypted
+  off-host and access-controlled.
+- Monitoring, alerting, log retention, incident ownership, patching, and data
+  retention/deletion procedures are documented.
+- Remote model and live-application targets remain disabled unless explicitly
+  allowlisted and approved; workers and tool runners have reviewed egress limits.
+- An independent authenticated security review is complete before any real
+  customer data or internet-facing production use.
+
+A green CI run is necessary but does not replace host validation, a restore
+drill, or an authenticated security review.
