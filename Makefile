@@ -52,7 +52,7 @@ doctor:
 	@echo "Docker configuration is valid."
 
 config-check:
-	docker compose run --rm --no-deps api python scripts/verify_runtime_config.py
+	docker compose run --build --rm --no-deps api python scripts/verify_runtime_config.py
 
 migrate:
 	docker compose exec api alembic upgrade head
@@ -105,7 +105,7 @@ build:
 	docker compose build
 
 release-gate:
-	docker compose run --rm --no-deps api python scripts/release_gate.py
+	docker compose run --build --rm --no-deps api python scripts/release_gate.py
 
 clean:
 	docker compose down --volumes --remove-orphans
