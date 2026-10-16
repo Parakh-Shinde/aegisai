@@ -51,7 +51,10 @@ services:
       VITE_API_ORIGIN: ${VITE_API_ORIGIN:-}
 
   caddy:
-    image: caddy:2-alpine
+    image: aegisai-caddy:production
+    build:
+      context: .
+      dockerfile: infra/caddy/Dockerfile
     restart: unless-stopped
     environment:
       AEGISAI_DOMAIN: ${AEGISAI_DOMAIN:?Set AEGISAI_DOMAIN to your DNS hostname}
