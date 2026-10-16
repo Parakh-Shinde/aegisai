@@ -2,7 +2,10 @@ name: aegisai
 
 services:
   postgres:
-    image: postgres:16.15-bookworm
+    image: aegisai-postgres:production
+    build:
+      context: .
+      dockerfile: infra/postgres/Dockerfile
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aegisai}
       POSTGRES_USER: ${POSTGRES_USER:-aegisai}
