@@ -150,7 +150,8 @@ jobs:
             postgres:16-alpine \
             redis:7-alpine \
             caddy:2-alpine; do
-            slug="${image//[:\\/]/-}"
+            slug="${image//:/-}"
+            slug="${slug//\//-}"
             echo "Scanning $image"
             trivy image --severity HIGH,CRITICAL --format sarif --output "trivy-image-${slug}.sarif" "$image" || true
             trivy image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 --format table "$image" || status=1
