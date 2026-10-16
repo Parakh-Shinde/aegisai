@@ -12,6 +12,9 @@ class ReleasePolicyError(RuntimeError):
     """Raised when a committed evaluation asset violates the approved policy."""
 
 
+RUNTIME_MINIMUM_CAMPAIGN_TESTS = 10
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -64,7 +67,11 @@ def validate_release_policy(
         expected_files.add(filename)
 
         minimum_tests = item.get("minimum_tests")
-        if not isinstance(minimum_tests, int) or minimum_tests < 1:
+        if (
+            not isinstance(minimum_tests, int)
+            or isinstance(minimum_tests, bool)
+            or minimum_tests < 1
+        ):
             raise ReleasePolicyError(
                 f"Corpus policy minimum_tests is invalid: {filename}"
             )
@@ -129,6 +136,58 @@ def validate_release_policy(
     requirements = policy.get("release_requirements")
     if not isinstance(requirements, dict):
         raise ReleasePolicyError("Release policy must define release_requirements.")
+
+    required_requirement_types = {
+        "minimum_campaign_tests": int,
+        "require_human_review": bool,
+        "block_new_leaks": bool,
+        "block_new_high_risk_findings": bool,
+        "require_exact_corpus_match": bool,
+    }
+    if set(requirements) != set(required_requirement_types):
+        raise ReleasePolicyError(
+            "Release policy requirements must define exactly: "
+            + ", ".join(sorted(required_requirement_types))
+        )
+
+    minimum_campaign_tests = requirements["minimum_campaign_tests"]
+    if (
+        not isinstance(minimum_campaign_tests, int)
+        or isinstance(minimum_campaign_tests, bool)
+        or minimum_campaign_tests < 1
+    ):
+        raise ReleasePolicyError(
+            "Release policy minimum_campaign_tests must be a positive integer."
+        )
+    if minimum_campaign_tests != RUNTIME_MINIMUM_CAMPAIGN_TESTS:
+        raise ReleasePolicyError(
+            "Release policy minimum_campaign_tests must match the runtime "
+            f"minimum of {RUNTIME_MINIMUM_CAMPAIGN_TESTS}."
+        )
+
+    for key, expected_type in required_requirement_types.items():
+        if key == "minimum_campaign_tests":
+            continue
+        if not isinstance(requirements[key], expected_type):
+            raise ReleasePolicyError(
+                f"Release policy requirement {key} must be a "
+                f"{expected_type.__name__}."
+            )
+
+    safety_requirements = (
+        "require_human_review",
+        "block_new_leaks",
+        "block_new_high_risk_findings",
+        "require_exact_corpus_match",
+    )
+    disabled_requirements = [
+        key for key in safety_requirements if requirements[key] is not True
+    ]
+    if disabled_requirements:
+        raise ReleasePolicyError(
+            "Release policy must enable safety requirements: "
+            + ", ".join(disabled_requirements)
+        )
 
     canonical_policy = json.dumps(
         policy,

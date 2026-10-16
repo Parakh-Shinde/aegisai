@@ -17,7 +17,11 @@ ENV VITE_ASYNC_CAMPAIGNS=$VITE_ASYNC_CAMPAIGNS
 
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.31.5-alpine3.24
+
+# Refresh Alpine security packages so the image does not retain stale base-layer fixes.
+USER root
+RUN apk update && apk upgrade --no-cache
 
 # Default to same-origin-only browser connections in local and production builds.
 ENV VITE_API_ORIGIN=""
@@ -30,3 +34,6 @@ COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 8080
+
+# Run the web server with the unprivileged UID used by nginxinc/nginx-unprivileged.
+USER 101:101

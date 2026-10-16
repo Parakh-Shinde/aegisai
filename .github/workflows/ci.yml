@@ -57,6 +57,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
+
       - name: Lint frontend
         run: npm run lint
 
@@ -95,13 +98,74 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "0"
           format: sarif
           output: trivy-results.sarif
 
       - name: Upload vulnerability results
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
+
+      - name: Archive raw vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisai-trivy-sarif
+          path: trivy-results.sarif
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Enforce high and critical dependency vulnerabilities
+        run: trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format table .
+
+      - name: Enforce high and critical configuration findings
+        run: trivy config --severity HIGH,CRITICAL --exit-code 1 --format table .
+
+      - name: Build production container images
+        run: |
+          docker build --pull -t aegisai-api:ci ./backend
+          docker build --pull -t aegisai-web:ci ./frontend \
+            --build-arg VITE_API_BASE_URL=/api \
+            --build-arg VITE_AUTH_REQUIRED=true \
+            --build-arg VITE_ASYNC_CAMPAIGNS=true
+          docker build --pull -t aegisai-ocr-runner:ci ./tools/ocr-runner
+          docker build --pull -t aegisai-promptfoo-runner:ci ./tools/promptfoo-runner
+          docker build --pull -t aegisai-postgres:ci -f infra/postgres/Dockerfile .
+          docker pull redis:7.4.11-bookworm
+          docker build --pull -t aegisai-caddy:ci -f infra/caddy/Dockerfile .
+
+      - name: Scan production container images for high and critical vulnerabilities
+        shell: bash
+        run: |
+          status=0
+          for image in \
+            aegisai-api:ci \
+            aegisai-web:ci \
+            aegisai-ocr-runner:ci \
+            aegisai-promptfoo-runner:ci \
+            aegisai-postgres:ci \
+            redis:7.4.11-bookworm \
+            aegisai-caddy:ci; do
+            slug="${image//:/-}"
+            slug="${slug//\//-}"
+            echo "Scanning $image"
+            trivy image --severity HIGH,CRITICAL --format sarif --output "trivy-image-${slug}.sarif" "$image" || true
+            trivy image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 --format table "$image" || status=1
+          done
+          exit "$status"
+
+      - name: Archive container vulnerability reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisai-container-vulnerability-reports
+          path: trivy-image-*.sarif
+          if-no-files-found: warn
+          retention-days: 7
 
   infrastructure:
     runs-on: ubuntu-latest
