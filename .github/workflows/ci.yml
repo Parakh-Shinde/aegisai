@@ -134,7 +134,7 @@ jobs:
             --build-arg VITE_ASYNC_CAMPAIGNS=true
           docker build --pull -t aegisai-ocr-runner:ci ./tools/ocr-runner
           docker build --pull -t aegisai-promptfoo-runner:ci ./tools/promptfoo-runner
-          docker pull postgres:16.15-bookworm
+          docker build --pull -t aegisai-postgres:ci -f infra/postgres/Dockerfile .
           docker pull redis:7.4.11-bookworm
           docker build --pull -t aegisai-caddy:ci -f infra/caddy/Dockerfile .
 
@@ -147,7 +147,7 @@ jobs:
             aegisai-web:ci \
             aegisai-ocr-runner:ci \
             aegisai-promptfoo-runner:ci \
-            postgres:16.15-bookworm \
+            aegisai-postgres:ci \
             redis:7.4.11-bookworm \
             aegisai-caddy:ci; do
             slug="${image//:/-}"
