@@ -255,6 +255,7 @@ def test_api_responses_are_not_cached() -> None:
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
 
+
 def test_production_requires_strong_bootstrap_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
