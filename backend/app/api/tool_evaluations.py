@@ -324,10 +324,10 @@ def claim_promptfoo_run(run_id: str, db: DBSession) -> PromptfooClaimResponse:
         CursorResult[Any],
         db.execute(
             update(ToolEvaluationRunRecord)
-        .where(
-            ToolEvaluationRunRecord.id == run_id,
-            ToolEvaluationRunRecord.status == "pending",
-        )
+            .where(
+                ToolEvaluationRunRecord.id == run_id,
+                ToolEvaluationRunRecord.status == "pending",
+            )
             .values(status="running", started_at=claimed_at)
         ),
     )
