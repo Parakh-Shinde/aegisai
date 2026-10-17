@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
@@ -188,23 +192,35 @@ def readiness_check() -> Response:
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
         checks["database"] = "ok"
-    except Exception:
+    except SQLAlchemyError:
         checks["database"] = "unavailable"
 
     if settings.async_campaigns:
-        try:
-            if not settings.redis_url:
-                raise RuntimeError("Redis is not configured")
-            client = Redis.from_url(
-                settings.redis_url,
-                socket_connect_timeout=1,
-                socket_timeout=1,
-            )
-            client.ping()
-            client.close()
-            checks["redis"] = "ok"
-        except Exception:
+        if not settings.redis_url:
             checks["redis"] = "unavailable"
+        else:
+            client = None
+            try:
+                client = Redis.from_url(
+                    settings.redis_url,
+                    socket_connect_timeout=1,
+                    socket_timeout=1,
+                )
+                client.ping()
+                checks["redis"] = "ok"
+            except (RedisError, ValueError):
+                checks["redis"] = "unavailable"
+            finally:
+                if client is not None:
+                    try:
+                        client.close()
+                    except (RedisError, OSError):
+                        # Cleanup failure must not mask the readiness result.
+                        logging.getLogger(__name__).debug(
+                            "Redis readiness client cleanup failed",
+                            exc_info=True,
+                        )
+
 
     ready = all(status == "ok" for status in checks.values())
     return JSONResponse(

@@ -910,24 +910,68 @@ export default function App() {
   async function refreshDashboard() {
     setError("");
 
-    try {
-      const [dashboardData, resultsData, comparisonData, findingQueueData, reportData, activityData] = await Promise.all([
-        apiGet<Dashboard>("/security-tests/dashboard"),
-        apiGet<SecurityResult[]>("/security-tests/results?limit=50"),
-        apiGet<ModelComparison[]>("/security-tests/models/compare"),
-        apiGet<FindingQueue>("/security-tests/findings/queue"),
-        apiGet<OrganizationReport>("/security-tests/reports/overview?days=30"),
-        apiGet<ReviewerActivity[]>("/security-tests/reports/reviewer-activity?days=30"),
-      ]);
+    const [
+      dashboardResult,
+      resultsResult,
+      comparisonResult,
+      findingQueueResult,
+      reportResult,
+      activityResult,
+    ] = await Promise.allSettled([
+      apiGet<Dashboard>("/security-tests/dashboard"),
+      apiGet<SecurityResult[]>("/security-tests/results?limit=50"),
+      apiGet<ModelComparison[]>("/security-tests/models/compare"),
+      apiGet<FindingQueue>("/security-tests/findings/queue"),
+      apiGet<OrganizationReport>("/security-tests/reports/overview?days=30"),
+      apiGet<ReviewerActivity[]>("/security-tests/reports/reviewer-activity?days=30"),
+    ]);
 
-      setDashboard(dashboardData);
-      setResults(resultsData);
-      setModelComparison(comparisonData);
-      setFindingQueue(findingQueueData);
-      setOrganizationReport(reportData);
-      setReviewerActivity(activityData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh dashboard");
+    const failures: string[] = [];
+    const failureMessage = (label: string, reason: unknown) =>
+      `${label}: ${reason instanceof Error ? reason.message : "request failed"}`;
+
+    if (dashboardResult.status === "fulfilled") {
+      setDashboard(dashboardResult.value);
+    } else {
+      failures.push(failureMessage("Dashboard metrics", dashboardResult.reason));
+    }
+
+    if (resultsResult.status === "fulfilled") {
+      setResults(resultsResult.value);
+    } else {
+      failures.push(failureMessage("Recent results", resultsResult.reason));
+    }
+
+    if (comparisonResult.status === "fulfilled") {
+      setModelComparison(comparisonResult.value);
+    } else {
+      failures.push(failureMessage("Model comparison", comparisonResult.reason));
+    }
+
+    if (findingQueueResult.status === "fulfilled") {
+      setFindingQueue(findingQueueResult.value);
+    } else {
+      failures.push(failureMessage("Finding queue", findingQueueResult.reason));
+    }
+
+    if (reportResult.status === "fulfilled") {
+      setOrganizationReport(reportResult.value);
+    } else {
+      failures.push(failureMessage("Organization report", reportResult.reason));
+    }
+
+    if (activityResult.status === "fulfilled") {
+      setReviewerActivity(activityResult.value);
+    } else {
+      failures.push(failureMessage("Reviewer activity", activityResult.reason));
+    }
+
+    if (failures.length > 0) {
+      setError(
+        failures.length === 6
+          ? `Dashboard refresh failed. ${failures.join(" | ")}`
+          : `Dashboard partially refreshed. ${failures.join(" | ")}`,
+      );
     }
   }
 

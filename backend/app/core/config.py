@@ -1,3 +1,4 @@
+
 import os
 from base64 import urlsafe_b64decode
 from dataclasses import dataclass
@@ -48,6 +49,24 @@ class Settings:
 def get_settings() -> Settings:
     environment = os.getenv("AEGISAI_ENVIRONMENT", "development")
     is_production = environment.lower() == "production"
+
+    # Keep API documentation disabled by default in production.
+    api_docs_enabled = (
+        os.getenv(
+            "AEGISAI_EXPOSE_API_DOCS",
+            "false" if is_production else "true",
+        )
+        .strip()
+        .lower()
+        == "true"
+    )
+
+    # Do not permit API documentation endpoints to be exposed in production.
+    if is_production and api_docs_enabled:
+        raise RuntimeError(
+            "AEGISAI_EXPOSE_API_DOCS must be false in production."
+        )
+
     database_url = os.getenv("DATABASE_URL", "")
     auth_required = (
         os.getenv(
@@ -59,6 +78,7 @@ def get_settings() -> Settings:
     jwt_secret = os.getenv("AEGISAI_JWT_SECRET", "")
     evidence_encryption_key = os.getenv("AEGISAI_EVIDENCE_ENCRYPTION_KEY") or None
     mfa_encryption_key = os.getenv("AEGISAI_MFA_ENCRYPTION_KEY") or None
+
     cors_origins = _comma_separated_env(
         "AEGISAI_CORS_ORIGINS",
         "http://localhost:5173,http://127.0.0.1:5173",
@@ -67,14 +87,20 @@ def get_settings() -> Settings:
         "AEGISAI_TRUSTED_HOSTS",
         "localhost,127.0.0.1,api,testserver",
     )
+
     redis_url = os.getenv("AEGISAI_REDIS_URL") or None
-    async_campaigns = os.getenv("AEGISAI_ASYNC_CAMPAIGNS", "false").lower() == "true"
+    async_campaigns = (
+        os.getenv("AEGISAI_ASYNC_CAMPAIGNS", "false").lower() == "true"
+    )
     agent_gateway_token = os.getenv("AEGISAI_AGENT_GATEWAY_TOKEN") or None
     tool_runner_token = os.getenv("AEGISAI_TOOL_RUNNER_TOKEN") or None
+    bootstrap_token = os.getenv("AEGISAI_BOOTSTRAP_TOKEN", "").strip() or None
+
     agent_enforcement_mode = os.getenv(
         "AEGISAI_AGENT_ENFORCEMENT_MODE",
         "enforce",
     ).lower()
+
     ocr_enabled = os.getenv("AEGISAI_OCR_ENABLED", "false").lower() == "true"
     ocr_runner_token = os.getenv("AEGISAI_OCR_RUNNER_TOKEN") or None
 
@@ -85,17 +111,21 @@ def get_settings() -> Settings:
 
     if is_production and not auth_required:
         raise RuntimeError("AEGISAI_AUTH_REQUIRED must be true in production.")
+
     allow_local_staging_bootstrap = (
         os.getenv("AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP", "false").lower()
         == "true"
     )
+
     if is_production:
         if allow_local_staging_bootstrap:
             raise RuntimeError(
                 "AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP must be false in production."
             )
+
         if not database_url.startswith("postgresql+"):
             raise RuntimeError("DATABASE_URL must use PostgreSQL in production.")
+
         if (
             not jwt_secret
             or jwt_secret == DEVELOPMENT_JWT_SECRET
@@ -105,61 +135,80 @@ def get_settings() -> Settings:
                 "AEGISAI_JWT_SECRET must be a unique value of at least 32 "
                 "characters in production."
             )
+
         if not evidence_encryption_key:
             raise RuntimeError(
                 "AEGISAI_EVIDENCE_ENCRYPTION_KEY is required in production."
             )
+
         try:
             decoded_key = urlsafe_b64decode(evidence_encryption_key.encode("ascii"))
         except (UnicodeEncodeError, ValueError) as exc:
             raise RuntimeError(
                 "AEGISAI_EVIDENCE_ENCRYPTION_KEY must be a valid Fernet key."
             ) from exc
+
         if len(decoded_key) != 32:
             raise RuntimeError(
                 "AEGISAI_EVIDENCE_ENCRYPTION_KEY must be a valid Fernet key."
             )
+
         if not os.getenv("AEGISAI_CORS_ORIGINS") or "*" in cors_origins:
             raise RuntimeError(
                 "AEGISAI_CORS_ORIGINS must contain explicit production UI origins."
             )
+
         if not os.getenv("AEGISAI_TRUSTED_HOSTS") or "*" in trusted_hosts:
             raise RuntimeError(
                 "AEGISAI_TRUSTED_HOSTS must contain explicit production host names."
             )
+
         if not redis_url:
             raise RuntimeError("AEGISAI_REDIS_URL is required in production.")
+
         if not async_campaigns:
             raise RuntimeError("AEGISAI_ASYNC_CAMPAIGNS must be true in production.")
+
         if not agent_gateway_token or len(agent_gateway_token) < 32:
             raise RuntimeError(
                 "AEGISAI_AGENT_GATEWAY_TOKEN must be a unique value of at least "
                 "32 characters in production."
             )
+
         if not tool_runner_token or len(tool_runner_token) < 32:
             raise RuntimeError(
                 "AEGISAI_TOOL_RUNNER_TOKEN must be a unique value of at least "
                 "32 characters in production."
             )
+        if not bootstrap_token or len(bootstrap_token) < 32:
+            raise RuntimeError(
+                "AEGISAI_BOOTSTRAP_TOKEN must be a unique value of at least "
+                "32 characters in production."
+            )
+
         if agent_enforcement_mode != "enforce":
             raise RuntimeError(
                 "AEGISAI_AGENT_ENFORCEMENT_MODE must be enforce in production."
             )
+
         if ocr_enabled and (not ocr_runner_token or len(ocr_runner_token) < 32):
             raise RuntimeError(
                 "AEGISAI_OCR_RUNNER_TOKEN must be a unique value of at least 32 "
                 "characters when OCR is enabled in production."
             )
+
         if not mfa_encryption_key:
             raise RuntimeError(
                 "AEGISAI_MFA_ENCRYPTION_KEY is required in production."
             )
+
         try:
             decoded_mfa_key = urlsafe_b64decode(mfa_encryption_key.encode("ascii"))
         except (UnicodeEncodeError, ValueError) as exc:
             raise RuntimeError(
                 "AEGISAI_MFA_ENCRYPTION_KEY must be a valid Fernet key."
             ) from exc
+
         if len(decoded_mfa_key) != 32:
             raise RuntimeError(
                 "AEGISAI_MFA_ENCRYPTION_KEY must be a valid Fernet key."
@@ -172,8 +221,11 @@ def get_settings() -> Settings:
         jwt_secret=jwt_secret or DEVELOPMENT_JWT_SECRET,
         jwt_issuer=os.getenv("AEGISAI_JWT_ISSUER", "aegisai"),
         jwt_audience=os.getenv("AEGISAI_JWT_AUDIENCE", "aegisai-api"),
-        jwt_expiry_minutes=max(1, int(os.getenv("AEGISAI_JWT_EXPIRY_MINUTES", "30"))),
-        bootstrap_token=os.getenv("AEGISAI_BOOTSTRAP_TOKEN") or None,
+        jwt_expiry_minutes=max(
+            1,
+            int(os.getenv("AEGISAI_JWT_EXPIRY_MINUTES", "30")),
+        ),
+        bootstrap_token=bootstrap_token,
         allow_local_staging_bootstrap=allow_local_staging_bootstrap,
         local_organization_slug=os.getenv(
             "AEGISAI_LOCAL_ORGANIZATION_SLUG",
@@ -210,14 +262,7 @@ def get_settings() -> Settings:
         agent_gateway_token=agent_gateway_token,
         tool_runner_token=tool_runner_token,
         agent_enforcement_mode=agent_enforcement_mode,
-        api_docs_enabled=(
-            os.getenv(
-                "AEGISAI_EXPOSE_API_DOCS",
-                "true" if not is_production else "false",
-            )
-            .lower()
-            == "true"
-        ),
+        api_docs_enabled=api_docs_enabled,
         model_max_output_tokens=_bounded_int_env(
             "AEGISAI_MODEL_MAX_OUTPUT_TOKENS",
             default=512,
@@ -239,7 +284,10 @@ def get_settings() -> Settings:
         redis_url=redis_url,
         async_campaigns=async_campaigns,
         ocr_enabled=ocr_enabled,
-        ocr_runner_url=os.getenv("AEGISAI_OCR_RUNNER_URL", "http://ocr-runner:8090"),
+        ocr_runner_url=os.getenv(
+            "AEGISAI_OCR_RUNNER_URL",
+            "http://ocr-runner:8090",
+        ),
         ocr_runner_token=ocr_runner_token,
         ocr_timeout_seconds=_bounded_int_env(
             "AEGISAI_OCR_TIMEOUT_SECONDS",
@@ -265,11 +313,19 @@ def _comma_separated_env(name: str, default: str) -> tuple[str, ...]:
     return values
 
 
-def _bounded_int_env(name: str, *, default: int, minimum: int, maximum: int) -> int:
+def _bounded_int_env(
+    name: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
     try:
         value = int(os.getenv(name, str(default)))
     except ValueError as exc:
         raise RuntimeError(f"{name} must be an integer.") from exc
+
     if not minimum <= value <= maximum:
         raise RuntimeError(f"{name} must be between {minimum} and {maximum}.")
+
     return value

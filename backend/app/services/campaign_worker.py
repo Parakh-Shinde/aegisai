@@ -34,6 +34,6 @@ def run_basic_suite_job(payload: dict) -> None:
             )
         # Evidence belongs in PostgreSQL, where field encryption and tenant access
         # controls apply. Do not copy prompts or model output into Redis job results.
-        return None
+        return
     finally:
         db.close()

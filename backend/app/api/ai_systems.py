@@ -157,6 +157,24 @@ def _decision_from_evidence(
     return "pass"
 
 
+def _tool_run_has_complete_results(run: ToolEvaluationRunRecord) -> bool:
+    """Fail closed when a completed run omits, skips, or miscounts test cases."""
+    return (
+        run.planned_tests > 0
+        and run.executed_tests == run.planned_tests
+        and run.skipped_tests == 0
+        and run.passed_tests + run.failed_tests == run.executed_tests
+    )
+
+
+def _rag_source_is_release_eligible(source: RAGSourceRecord) -> bool:
+    """Only explicitly eligible states can satisfy the RAG release evidence gate."""
+    if source.review_state == "approved_exception":
+        # This state is assigned only through the administrator-only exception path.
+        return True
+    return source.review_state == "auto_approved" and source.verdict == "approved"
+
+
 def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
@@ -475,8 +493,13 @@ def get_ai_system_release_decision(
         )
     else:
         failed_tool_runs = [run for run in latest_tool_runs if run.failed_tests > 0]
+        incomplete_tool_runs = [
+            run for run in latest_tool_runs if not _tool_run_has_complete_results(run)
+        ]
         tool_status: EvidenceStatus = (
-            "pass" if not failed_tool_runs else "manual_review_required"
+            "pass"
+            if not failed_tool_runs and not incomplete_tool_runs
+            else "manual_review_required"
         )
         evidence.append(
             _evidence(
@@ -485,7 +508,8 @@ def get_ai_system_release_decision(
                 (
                     f"Latest completed runs for {len(latest_tool_runs)} target(s) "
                     f"contain {sum(run.failed_tests for run in latest_tool_runs)} "
-                    "failed test(s)."
+                    f"failed test(s) and {len(incomplete_tool_runs)} incomplete "
+                    "or inconsistent result set(s)."
                 ),
                 latest_tool_runs,
             )
@@ -539,18 +563,21 @@ def get_ai_system_release_decision(
                 .order_by(RAGSourceRecord.created_at.desc())
             ).all()
         )
-        pending_sources = [
-            source for source in sources if source.review_state == "pending_review"
+        ineligible_sources = [
+            source for source in sources if not _rag_source_is_release_eligible(source)
         ]
         rag_status: EvidenceStatus = (
             "manual_review_required"
-            if not sources or pending_sources
+            if not sources or ineligible_sources
             else "pass"
         )
         rag_summary = (
             "No RAG source inspection is linked to this RAG-enabled system."
             if not sources
-            else f"{len(pending_sources)} RAG source(s) remain pending review."
+            else (
+                f"{len(ineligible_sources)} RAG source(s) are not in an explicitly "
+                "approved indexing state or require review."
+            )
         )
         evidence.append(_evidence("rag_security", rag_status, rag_summary, sources))
     else:

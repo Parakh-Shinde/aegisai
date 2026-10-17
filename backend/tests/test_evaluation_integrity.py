@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-from app.api.security_tests import (  # noqa: E402
+from app.api.security_tests import (
     CorpusProvenance,
     build_regression_gate_response,
     build_scorecard,
@@ -11,7 +11,7 @@ from app.api.security_tests import (  # noqa: E402
     load_corpus_suite,
     triage_due_at,
 )
-from app.db.models import EvaluationBaseline, SecurityTestResultRecord  # noqa: E402
+from app.db.models import EvaluationBaseline, SecurityTestResultRecord
 
 
 def make_record(

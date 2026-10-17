@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 import pytest
-from app.api.auth import (  # noqa: E402
+from app.api.auth import (
     AccountStatusRequest,
     AdminPasswordResetRequest,
     APITokenCreateRequest,
@@ -24,7 +24,7 @@ from app.api.auth import (  # noqa: E402
     revoke_api_token,
     update_organization_user_status,
 )
-from app.core.auth import (  # noqa: E402
+from app.core.auth import (
     Actor,
     create_access_token,
     get_current_actor,
@@ -34,16 +34,16 @@ from app.core.auth import (  # noqa: E402
     verify_password,
     verify_totp_code,
 )
-from app.db.models import AuditLog, Base, Organization, User, UserRole  # noqa: E402
-from app.services.audit import (  # noqa: E402
+from app.db.models import AuditLog, Base, Organization, User, UserRole
+from app.services.audit import (
     export_audit_logs_csv,
     verify_audit_chain,
     write_audit_log,
 )
-from fastapi import HTTPException  # noqa: E402
-from fastapi.security import HTTPAuthorizationCredentials  # noqa: E402
-from sqlalchemy import create_engine, select  # noqa: E402
-from sqlalchemy.orm import Session  # noqa: E402
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 
 def totp_code(secret: str, timestamp: int) -> str:

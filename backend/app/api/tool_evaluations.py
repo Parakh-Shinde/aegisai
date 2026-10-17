@@ -1,9 +1,10 @@
 import json
 from datetime import UTC, datetime
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.core.auth import bind_request_actor, request_actor, require_roles
@@ -318,8 +319,23 @@ def claim_promptfoo_run(run_id: str, db: DBSession) -> PromptfooClaimResponse:
         raise HTTPException(
             status_code=409, detail="Run configuration integrity check failed."
         )
-    run.status = "running"
-    run.started_at = datetime.now(UTC)
+    claimed_at = datetime.now(UTC)
+    claim_result = cast(
+        CursorResult[Any],
+        db.execute(
+            update(ToolEvaluationRunRecord)
+            .where(
+                ToolEvaluationRunRecord.id == run_id,
+                ToolEvaluationRunRecord.status == "pending",
+            )
+            .values(status="running", started_at=claimed_at)
+        ),
+    )
+    if claim_result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="Tool evaluation run is not pending."
+        )
     db.commit()
     return PromptfooClaimResponse(
         run_id=run.id,
