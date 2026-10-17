@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 import pytest
-
 from app.api.auth import (
     AccountStatusRequest,
     AdminPasswordResetRequest,
