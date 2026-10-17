@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 import pytest
-
 from app.api.ai_systems import (
     _apply_evidence_freshness,
     decide_release_approval,
