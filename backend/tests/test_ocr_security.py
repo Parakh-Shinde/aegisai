@@ -2,7 +2,6 @@ import hashlib
 
 import httpx
 import pytest
-
 from app.services.ocr_security import OCRRunnerError, extract_text_in_sandbox
 
 
