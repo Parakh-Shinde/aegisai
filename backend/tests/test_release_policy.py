@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from app.services.release_policy import ReleasePolicyError, validate_release_policy
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
