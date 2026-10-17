@@ -1,5 +1,4 @@
 import pytest
-
 from app.models.ai_system import AISystemProfileRequest
 from app.services.coverage import build_coverage_plan
 from pydantic import ValidationError
