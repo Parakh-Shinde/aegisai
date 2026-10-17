@@ -163,6 +163,7 @@ def test_production_requires_independent_mfa_encryption_key(
     monkeypatch.setenv("AEGISAI_ASYNC_CAMPAIGNS", "true")
     monkeypatch.setenv("AEGISAI_AGENT_GATEWAY_TOKEN", "a" * 32)
     monkeypatch.setenv("AEGISAI_TOOL_RUNNER_TOKEN", "b" * 32)
+    monkeypatch.setenv("AEGISAI_BOOTSTRAP_TOKEN", "c" * 32)
     monkeypatch.setenv("AEGISAI_OCR_ENABLED", "false")
     monkeypatch.delenv("AEGISAI_MFA_ENCRYPTION_KEY", raising=False)
 
