@@ -1,9 +1,8 @@
-from sqlalchemy import select
-
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.evidence import ENCRYPTED_EVIDENCE_PREFIX, protect_evidence
 from app.db.models import SecurityTestResultRecord
+from sqlalchemy import select
 
 
 def main() -> None:
