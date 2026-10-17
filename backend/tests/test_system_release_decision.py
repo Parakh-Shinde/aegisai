@@ -4,9 +4,6 @@ from datetime import UTC, datetime, timedelta
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 
 from app.api.ai_systems import (
     _apply_evidence_freshness,
@@ -30,6 +27,9 @@ from app.models.ai_system import (
     ReleaseApprovalRequest,
     SystemReleaseEvidenceResponse,
 )
+from fastapi import HTTPException
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 
 def test_unified_release_decision_passes_only_with_linked_evidence() -> None:
