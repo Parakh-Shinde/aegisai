@@ -3,15 +3,15 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-import jwt
-import pytest
-from cryptography.fernet import Fernet
-
-from app.core.auth import create_access_token
-from app.core.config import get_settings
-from app.core.execution import ModelCapacityError, ModelExecutionGate
-from app.db.models import User, UserRole
-from app.main import RequestBodyLimitMiddleware
+import jwt  # noqa: E402
+import pytest  # noqa: E402
+from cryptography.fernet import Fernet  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from app.core.auth import create_access_token  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
+from app.core.execution import ModelCapacityError, ModelExecutionGate  # noqa: E402
+from app.db.models import User, UserRole  # noqa: E402
+from app.main import RequestBodyLimitMiddleware, app  # noqa: E402
 
 
 def test_production_requires_explicit_cors_and_trusted_hosts(
@@ -248,6 +248,7 @@ def test_request_body_limit_rejects_chunked_oversized_requests() -> None:
     assert sent[0]["status"] == 413
 
 
+
 def test_api_docs_are_enabled_by_default_in_development(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -268,3 +269,10 @@ def test_production_rejects_explicitly_enabled_api_docs(
         match="AEGISAI_EXPOSE_API_DOCS must be false in production",
     ):
         get_settings()
+
+
+def test_api_responses_are_not_cached() -> None:
+    response = TestClient(app).get("/health")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help setup start stop restart logs status doctor config-check migrate backup verify-backup restore encrypt-evidence agent-gateway-demo model-agent-eval promptfoo-run live-app-run ocr-start test lint build release-gate clean
+.PHONY: help setup start stop restart logs status doctor config-check migrate backup verify-backup restore encrypt-evidence agent-gateway-demo model-agent-eval promptfoo-run live-app-run ocr-start test test-image lint build release-gate clean
 
 help:
 	@echo "AEGISAI local security lab"
@@ -21,8 +21,9 @@ help:
 	@echo "  make promptfoo-run RUN_ID=id  Run an approved Promptfoo job in the isolated runner"
 	@echo "  make live-app-run RUN_ID=id  Run an approved OpenAI-compatible application test"
 	@echo "  make ocr-start  Build and start the isolated OCR sandbox profile"
-	@echo "  make test     Run backend tests in Docker"
+	@echo "  make test     Run backend tests in a dedicated test image"
 	@echo "  make lint     Run backend lint and frontend lint in Docker"
+	@echo "  make test-image  Build the isolated backend test/lint image"
 	@echo "  make release-gate  Validate the locked evaluation release policy"
 	@echo "  make clean    Stop the lab and remove local evaluation data"
 
@@ -51,7 +52,7 @@ doctor:
 	@echo "Docker configuration is valid."
 
 config-check:
-	docker compose run --rm --no-deps api python scripts/verify_runtime_config.py
+	docker compose run --build --rm --no-deps api python scripts/verify_runtime_config.py
 
 migrate:
 	docker compose exec api alembic upgrade head
@@ -89,18 +90,22 @@ live-app-run: promptfoo-run
 ocr-start:
 	docker compose --profile ocr up --build --detach ocr-runner
 
-test:
-	docker compose run --rm --no-deps --workdir /app api python -m pytest /app/tests
+test-image:
+	docker build --tag aegisai-test:local --file backend/Dockerfile.test .
 
-lint:
-	docker compose run --rm --no-deps api ruff check /app
+test: test-image
+	docker run --rm -e DATABASE_URL=sqlite:///:memory: -e OLLAMA_BASE_URL=http://127.0.0.1:11434 aegisai-test:local pytest -q
+
+lint: test-image
+	docker run --rm aegisai-test:local ruff check backend
+	docker run --rm aegisai-test:local mypy backend/app
 	docker compose run --rm --no-deps web-check
 
 build:
 	docker compose build
 
 release-gate:
-	docker compose run --rm --no-deps api python scripts/release_gate.py
+	docker compose run --build --rm --no-deps api python scripts/release_gate.py
 
 clean:
 	docker compose down --volumes --remove-orphans

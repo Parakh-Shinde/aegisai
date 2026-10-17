@@ -1,0 +1,85 @@
+# Production overlay for a single, self-managed Docker host.
+# Keep the base Compose ports loopback-bound; Caddy is the only public entry point.
+# Supply secrets from a protected .env.production file or secret manager.
+services:
+  api:
+    environment:
+      AEGISAI_ENVIRONMENT: production
+      AEGISAI_AUTH_REQUIRED: "true"
+      AEGISAI_EXPOSE_API_DOCS: "false"
+      AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP: "false"
+      AEGISAI_ALLOW_REMOTE_OLLAMA: "false"
+      AEGISAI_ALLOW_REMOTE_APPLICATION_TARGETS: "false"
+      AEGISAI_AGENT_ENFORCEMENT_MODE: enforce
+      AEGISAI_ASYNC_CAMPAIGNS: "true"
+      AEGISAI_CORS_ORIGINS: https://${AEGISAI_DOMAIN:?Set AEGISAI_DOMAIN to your DNS hostname}
+      AEGISAI_TRUSTED_HOSTS: ${AEGISAI_DOMAIN:?Set AEGISAI_DOMAIN to your DNS hostname},api,localhost,127.0.0.1
+      AEGISAI_JWT_SECRET: ${AEGISAI_JWT_SECRET:?Set AEGISAI_JWT_SECRET}
+      AEGISAI_EVIDENCE_ENCRYPTION_KEY: ${AEGISAI_EVIDENCE_ENCRYPTION_KEY:?Set AEGISAI_EVIDENCE_ENCRYPTION_KEY}
+      AEGISAI_MFA_ENCRYPTION_KEY: ${AEGISAI_MFA_ENCRYPTION_KEY:?Set AEGISAI_MFA_ENCRYPTION_KEY}
+      AEGISAI_AGENT_GATEWAY_TOKEN: ${AEGISAI_AGENT_GATEWAY_TOKEN:?Set AEGISAI_AGENT_GATEWAY_TOKEN}
+      AEGISAI_TOOL_RUNNER_TOKEN: ${AEGISAI_TOOL_RUNNER_TOKEN:?Set AEGISAI_TOOL_RUNNER_TOKEN}
+      AEGISAI_BOOTSTRAP_TOKEN: ${AEGISAI_BOOTSTRAP_TOKEN:?Set AEGISAI_BOOTSTRAP_TOKEN}
+      AEGISAI_API_KEY: ""
+      AEGISAI_OCR_ENABLED: "false"
+    # Keep the API's published port bound to loopback from compose.yaml.
+    # Caddy reaches it over the internal Compose network.
+
+  worker:
+    environment:
+      AEGISAI_ENVIRONMENT: production
+      AEGISAI_AUTH_REQUIRED: "true"
+      AEGISAI_ASYNC_CAMPAIGNS: "true"
+      AEGISAI_AGENT_ENFORCEMENT_MODE: enforce
+      AEGISAI_ALLOW_REMOTE_OLLAMA: "false"
+      AEGISAI_JWT_SECRET: ${AEGISAI_JWT_SECRET:?Set AEGISAI_JWT_SECRET}
+      AEGISAI_EVIDENCE_ENCRYPTION_KEY: ${AEGISAI_EVIDENCE_ENCRYPTION_KEY:?Set AEGISAI_EVIDENCE_ENCRYPTION_KEY}
+      AEGISAI_MFA_ENCRYPTION_KEY: ${AEGISAI_MFA_ENCRYPTION_KEY:?Set AEGISAI_MFA_ENCRYPTION_KEY}
+      AEGISAI_AGENT_GATEWAY_TOKEN: ${AEGISAI_AGENT_GATEWAY_TOKEN:?Set AEGISAI_AGENT_GATEWAY_TOKEN}
+      AEGISAI_TOOL_RUNNER_TOKEN: ${AEGISAI_TOOL_RUNNER_TOKEN:?Set AEGISAI_TOOL_RUNNER_TOKEN}
+      AEGISAI_CORS_ORIGINS: https://${AEGISAI_DOMAIN:?Set AEGISAI_DOMAIN to your DNS hostname}
+      AEGISAI_TRUSTED_HOSTS: ${AEGISAI_DOMAIN:?Set AEGISAI_DOMAIN to your DNS hostname},api,localhost,127.0.0.1
+      AEGISAI_ALLOW_LOCAL_STAGING_BOOTSTRAP: "false"
+
+  web:
+    build:
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_AUTH_REQUIRED: "true"
+        VITE_ASYNC_CAMPAIGNS: "true"
+    environment:
+      VITE_API_ORIGIN: ${VITE_API_ORIGIN:-}
+
+  caddy:
+    image: aegisai-caddy:production
+    build:
+      context: .
+      dockerfile: infra/caddy/Dockerfile
+    restart: unless-stopped
+    environment:
+      AEGISAI_DOMAIN: ${AEGISAI_DOMAIN:?Set AEGISAI_DOMAIN to your DNS hostname}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL for TLS certificate notices}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - aegisai-caddy-data:/data
+      - aegisai-caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+volumes:
+  aegisai-caddy-data:
+  aegisai-caddy-config:

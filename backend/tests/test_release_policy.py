@@ -1,5 +1,8 @@
+import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -36,5 +39,108 @@ def test_modified_corpus_fails_the_release_policy(tmp_path: Path) -> None:
         validate_release_policy(
             policy_path=BACKEND_ROOT / "release" / "evaluation-policy.json",
             corpus_dir=corpus_dir,
+            source_revision="test-revision",
+        )
+
+
+
+def _write_policy_copy(
+    tmp_path: Path,
+    mutate: Callable[[dict[str, Any]], object],
+) -> Path:
+    source = BACKEND_ROOT / "release" / "evaluation-policy.json"
+    policy = json.loads(source.read_text(encoding="utf-8"))
+    mutate(policy)
+    destination = tmp_path / "evaluation-policy.json"
+    destination.write_text(json.dumps(policy), encoding="utf-8")
+    return destination
+
+
+def test_release_policy_rejects_missing_requirement(tmp_path: Path) -> None:
+    policy_path = _write_policy_copy(
+        tmp_path,
+        lambda policy: policy["release_requirements"].pop("block_new_leaks"),
+    )
+
+    with pytest.raises(ReleasePolicyError, match="exactly"):
+        validate_release_policy(
+            policy_path=policy_path,
+            corpus_dir=BACKEND_ROOT / "app" / "corpus",
+            source_revision="test-revision",
+        )
+
+
+def test_release_policy_rejects_boolean_campaign_minimum(tmp_path: Path) -> None:
+    policy_path = _write_policy_copy(
+        tmp_path,
+        lambda policy: policy["release_requirements"].update(
+            {"minimum_campaign_tests": True}
+        ),
+    )
+
+    with pytest.raises(ReleasePolicyError, match="positive integer"):
+        validate_release_policy(
+            policy_path=policy_path,
+            corpus_dir=BACKEND_ROOT / "app" / "corpus",
+            source_revision="test-revision",
+        )
+
+
+def test_release_policy_requires_exact_corpus_matching(tmp_path: Path) -> None:
+    policy_path = _write_policy_copy(
+        tmp_path,
+        lambda policy: policy["release_requirements"].update(
+            {"require_exact_corpus_match": False}
+        ),
+    )
+
+    with pytest.raises(ReleasePolicyError, match="safety requirements"):
+        validate_release_policy(
+            policy_path=policy_path,
+            corpus_dir=BACKEND_ROOT / "app" / "corpus",
+            source_revision="test-revision",
+        )
+
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "require_human_review",
+        "block_new_leaks",
+        "block_new_high_risk_findings",
+        "require_exact_corpus_match",
+    ],
+)
+def test_release_policy_rejects_disabled_safety_requirement(
+    tmp_path: Path,
+    requirement: str,
+) -> None:
+    def disable_requirement(policy: dict[str, Any]) -> None:
+        policy["release_requirements"][requirement] = False
+
+    policy_path = _write_policy_copy(tmp_path, disable_requirement)
+
+    with pytest.raises(ReleasePolicyError, match="safety requirements"):
+        validate_release_policy(
+            policy_path=policy_path,
+            corpus_dir=BACKEND_ROOT / "app" / "corpus",
+            source_revision="test-revision",
+        )
+
+
+
+def test_release_policy_rejects_runtime_minimum_mismatch(tmp_path: Path) -> None:
+    policy_path = _write_policy_copy(
+        tmp_path,
+        lambda policy: policy["release_requirements"].update(
+            {"minimum_campaign_tests": 11}
+        ),
+    )
+
+    with pytest.raises(ReleasePolicyError, match="match the runtime minimum"):
+        validate_release_policy(
+            policy_path=policy_path,
+            corpus_dir=BACKEND_ROOT / "app" / "corpus",
             source_revision="test-revision",
         )

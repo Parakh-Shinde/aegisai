@@ -17,9 +17,23 @@ ENV VITE_ASYNC_CAMPAIGNS=$VITE_ASYNC_CAMPAIGNS
 
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Refresh security packages in the final runtime image.
+USER root
+RUN apk update && apk upgrade --no-cache
+
+# Default to same-origin-only browser connections in local and production builds.
+ENV VITE_API_ORIGIN=""
+
+# Only substitute the API origin in the Nginx template. Other Nginx variables
+# such as $uri must remain intact when the container starts.
+ENV NGINX_ENVSUBST_FILTER="^VITE_API_ORIGIN$"
+
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 8080
+
+# Run the web server with the unprivileged UID used by nginxinc/nginx-unprivileged.
+USER 101:101

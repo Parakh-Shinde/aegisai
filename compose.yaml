@@ -2,7 +2,10 @@ name: aegisai
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: aegisai-postgres:production
+    build:
+      context: .
+      dockerfile: infra/postgres/Dockerfile
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aegisai}
       POSTGRES_USER: ${POSTGRES_USER:-aegisai}
@@ -19,7 +22,10 @@ services:
     pids_limit: 256
 
   redis:
-    image: redis:7-alpine
+    image: aegisai-redis:production
+    build:
+      context: .
+      dockerfile: infra/redis/Dockerfile
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
     volumes:
       - aegisai-redis:/data
@@ -89,7 +95,7 @@ services:
         - CMD
         - python
         - -c
-        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health')"
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/ready')"
       interval: 10s
       timeout: 5s
       retries: 6
@@ -212,6 +218,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    environment:
+      VITE_API_ORIGIN: "http://127.0.0.1:8000 http://localhost:8000"
     ports:
       - 127.0.0.1:5173:8080
     restart: unless-stopped

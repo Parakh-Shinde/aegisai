@@ -53,8 +53,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         )
-        if request.url.path.startswith("/auth/"):
-            response.headers["Cache-Control"] = "no-store"
+        # API responses may contain prompts, model outputs, and security evidence.
+        # Do not let browsers or intermediary caches retain sensitive response data.
+        response.headers["Cache-Control"] = "no-store"
         return response
 
 
