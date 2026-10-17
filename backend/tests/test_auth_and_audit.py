@@ -7,10 +7,6 @@ from datetime import UTC, datetime
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 import pytest
-from fastapi import HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
 
 from app.api.auth import (
     AccountStatusRequest,
@@ -45,6 +41,10 @@ from app.services.audit import (
     verify_audit_chain,
     write_audit_log,
 )
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 
 def totp_code(secret: str, timestamp: int) -> str:
