@@ -71,6 +71,7 @@ def get_settings() -> Settings:
     async_campaigns = os.getenv("AEGISAI_ASYNC_CAMPAIGNS", "false").lower() == "true"
     agent_gateway_token = os.getenv("AEGISAI_AGENT_GATEWAY_TOKEN") or None
     tool_runner_token = os.getenv("AEGISAI_TOOL_RUNNER_TOKEN") or None
+    bootstrap_token = os.getenv("AEGISAI_BOOTSTRAP_TOKEN", "").strip() or None
     agent_enforcement_mode = os.getenv(
         "AEGISAI_AGENT_ENFORCEMENT_MODE",
         "enforce",
@@ -141,6 +142,11 @@ def get_settings() -> Settings:
                 "AEGISAI_TOOL_RUNNER_TOKEN must be a unique value of at least "
                 "32 characters in production."
             )
+        if not bootstrap_token or len(bootstrap_token) < 32:
+            raise RuntimeError(
+                "AEGISAI_BOOTSTRAP_TOKEN must be a unique value of at least "
+                "32 characters in production."
+            )
         if agent_enforcement_mode != "enforce":
             raise RuntimeError(
                 "AEGISAI_AGENT_ENFORCEMENT_MODE must be enforce in production."
@@ -173,7 +179,7 @@ def get_settings() -> Settings:
         jwt_issuer=os.getenv("AEGISAI_JWT_ISSUER", "aegisai"),
         jwt_audience=os.getenv("AEGISAI_JWT_AUDIENCE", "aegisai-api"),
         jwt_expiry_minutes=max(1, int(os.getenv("AEGISAI_JWT_EXPIRY_MINUTES", "30"))),
-        bootstrap_token=os.getenv("AEGISAI_BOOTSTRAP_TOKEN") or None,
+        bootstrap_token=bootstrap_token,
         allow_local_staging_bootstrap=allow_local_staging_bootstrap,
         local_organization_slug=os.getenv(
             "AEGISAI_LOCAL_ORGANIZATION_SLUG",
