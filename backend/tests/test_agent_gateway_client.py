@@ -2,6 +2,7 @@ import json
 
 import httpx
 import pytest
+
 from app.integrations.agent_gateway import (
     AgentActionDenied,
     AgentActionProposal,
@@ -67,15 +68,14 @@ def test_execute_fails_closed_for_a_denied_action() -> None:
         gateway_base_url="https://aegis.example",
         system_id="agent-system-id",
         transport=httpx.MockTransport(handler),
-    ) as gateway:
-        with pytest.raises(AgentActionDenied, match="prevented"):
-            gateway.execute(
-                AgentActionProposal(
-                    action_type="shell_command",
-                    tool_name="shell",
-                ),
-                operation,
-            )
+    ) as gateway, pytest.raises(AgentActionDenied, match="prevented"):
+        gateway.execute(
+            AgentActionProposal(
+                action_type="shell_command",
+                tool_name="shell",
+            ),
+            operation,
+        )
 
     assert not called
 
@@ -101,12 +101,11 @@ def test_malformed_gateway_response_fails_closed() -> None:
         gateway_base_url="https://aegis.example",
         system_id="agent-system-id",
         transport=httpx.MockTransport(lambda _: httpx.Response(201, json={})),
-    ) as gateway:
-        with pytest.raises(AgentGatewayError, match="malformed"):
-            gateway.authorize(
-                AgentActionProposal(
-                    action_type="browser_navigation",
-                    tool_name="knowledge_browser",
-                    target="https://docs.example.com/help",
-                )
+    ) as gateway, pytest.raises(AgentGatewayError, match="malformed"):
+        gateway.authorize(
+            AgentActionProposal(
+                action_type="browser_navigation",
+                tool_name="knowledge_browser",
+                target="https://docs.example.com/help",
             )
+        )

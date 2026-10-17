@@ -31,7 +31,7 @@ class ToolTargetRequest(BaseModel):
     def normalize_endpoint(cls, value: str) -> str:
         return value.strip().rstrip("/")
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, __context: Any, /) -> None:
         if self.provider == "ollama":
             validate_local_http_url(self.endpoint, "endpoint")
             return

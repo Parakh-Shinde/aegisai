@@ -2,20 +2,21 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-import pytest  # noqa: E402
-from app.core.config import DEVELOPMENT_JWT_SECRET, get_settings  # noqa: E402
-from app.core.evidence import protect_evidence, reveal_evidence  # noqa: E402
-from app.core.rate_limit import LoginRateLimiter, RedisLoginRateLimiter  # noqa: E402
-from app.core.security import (  # noqa: E402
+import pytest
+from cryptography.fernet import Fernet
+from fastapi import HTTPException
+
+from app.core.config import DEVELOPMENT_JWT_SECRET, get_settings
+from app.core.evidence import protect_evidence, reveal_evidence
+from app.core.rate_limit import LoginRateLimiter, RedisLoginRateLimiter
+from app.core.security import (
     require_agent_gateway_token,
     require_api_key,
     require_tool_runner_token,
     validate_identifier,
     validate_local_http_url,
 )
-from app.services import campaign_queue  # noqa: E402
-from cryptography.fernet import Fernet  # noqa: E402
-from fastapi import HTTPException  # noqa: E402
+from app.services import campaign_queue
 
 
 def test_identifier_validation_rejects_path_traversal() -> None:
@@ -197,13 +198,14 @@ def test_campaign_job_status_never_returns_redis_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeJob:
-        id = "job-1"
-        meta = {
-            "organization_id": "organization-1",
-            "campaign_id": "campaign-1",
-            "model": "local-model",
-        }
-        result = {"prompt_sent": "sensitive evidence"}
+        def __init__(self) -> None:
+            self.id = "job-1"
+            self.meta = {
+                "organization_id": "organization-1",
+                "campaign_id": "campaign-1",
+                "model": "local-model",
+            }
+            self.result = {"prompt_sent": "sensitive evidence"}
 
         @staticmethod
         def get_status() -> str:

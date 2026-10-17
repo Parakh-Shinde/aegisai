@@ -3,14 +3,15 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-import jwt  # noqa: E402
-import pytest  # noqa: E402
-from app.core.auth import create_access_token  # noqa: E402
-from app.core.config import get_settings  # noqa: E402
-from app.core.execution import ModelCapacityError, ModelExecutionGate  # noqa: E402
-from app.db.models import User, UserRole  # noqa: E402
-from app.main import RequestBodyLimitMiddleware  # noqa: E402
-from cryptography.fernet import Fernet  # noqa: E402
+import jwt
+import pytest
+from cryptography.fernet import Fernet
+
+from app.core.auth import create_access_token
+from app.core.config import get_settings
+from app.core.execution import ModelCapacityError, ModelExecutionGate
+from app.db.models import User, UserRole
+from app.main import RequestBodyLimitMiddleware
 
 
 def test_production_requires_explicit_cors_and_trusted_hosts(
@@ -245,3 +246,25 @@ def test_request_body_limit_rejects_chunked_oversized_requests() -> None:
     )
 
     assert sent[0]["status"] == 413
+
+
+def test_api_docs_are_enabled_by_default_in_development(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_ENVIRONMENT", "development")
+    monkeypatch.delenv("AEGISAI_EXPOSE_API_DOCS", raising=False)
+
+    assert get_settings().api_docs_enabled is True
+
+
+def test_production_rejects_explicitly_enabled_api_docs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AEGISAI_ENVIRONMENT", "production")
+    monkeypatch.setenv("AEGISAI_EXPOSE_API_DOCS", "true")
+
+    with pytest.raises(
+        RuntimeError,
+        match="AEGISAI_EXPOSE_API_DOCS must be false in production",
+    ):
+        get_settings()

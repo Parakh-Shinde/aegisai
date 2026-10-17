@@ -1,6 +1,5 @@
 """Validate the committed evaluation policy and write a CI integrity report."""
 
-# ruff: noqa: E402
 
 from __future__ import annotations
 

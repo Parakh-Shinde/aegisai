@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-from app.api.security_tests import (  # noqa: E402
+from app.api.security_tests import (
     analyze_jailbreak_response,
     analyze_prompt_injection_response,
     analyze_sensitive_data_response,

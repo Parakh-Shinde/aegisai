@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, Self, TypeVar
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -166,7 +166,7 @@ class AgentGatewayClient:
             )
         return operation()
 
-    def __enter__(self) -> AgentGatewayClient:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: object) -> None:

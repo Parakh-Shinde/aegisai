@@ -2,6 +2,7 @@ import json
 
 import httpx
 import pytest
+
 from app.services.model_agent_evaluation import (
     ModelAgentEvaluationError,
     load_model_agent_suite,

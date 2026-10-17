@@ -420,10 +420,7 @@ def _png_metadata_text(content: bytes) -> str:
         if data_end + 4 > len(content):
             break
         data = content[data_start:data_end]
-        if chunk_type == b"tEXt":
-            values.append(data[:remaining])
-            remaining -= min(len(data), remaining)
-        elif chunk_type == b"iTXt":
+        if chunk_type == b"tEXt" or chunk_type == b"iTXt":
             values.append(data[:remaining])
             remaining -= min(len(data), remaining)
         elif chunk_type == b"zTXt" and b"\x00" in data:

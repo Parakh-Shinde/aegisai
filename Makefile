@@ -90,7 +90,7 @@ ocr-start:
 	docker compose --profile ocr up --build --detach ocr-runner
 
 test:
-	docker compose run --rm --no-deps api pytest /app/tests
+	docker compose run --rm --no-deps --workdir /app api python -m pytest /app/tests
 
 lint:
 	docker compose run --rm --no-deps api ruff check /app
