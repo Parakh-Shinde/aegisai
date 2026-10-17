@@ -3,8 +3,6 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 import pytest
-from cryptography.fernet import Fernet
-from fastapi import HTTPException
 
 from app.core.config import DEVELOPMENT_JWT_SECRET, get_settings
 from app.core.evidence import protect_evidence, reveal_evidence
@@ -17,6 +15,8 @@ from app.core.security import (
     validate_local_http_url,
 )
 from app.services import campaign_queue
+from cryptography.fernet import Fernet
+from fastapi import HTTPException
 
 
 def test_identifier_validation_rejects_path_traversal() -> None:
