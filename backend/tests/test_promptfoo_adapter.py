@@ -1,5 +1,4 @@
 import pytest
-
 from app.models.tool_evaluations import ToolTargetRequest
 from app.services.promptfoo_adapter import (
     PROMPTFOO_AI_SECURITY_BASELINE_SUITE_NAME,
