@@ -3,10 +3,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from app import main
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
-
-from app import main
 
 
 def configure_database(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
