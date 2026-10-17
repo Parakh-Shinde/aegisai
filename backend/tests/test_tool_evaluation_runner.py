@@ -1,9 +1,3 @@
-
-from fastapi import HTTPException
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
-
 from app.api.tool_evaluations import claim_promptfoo_run
 from app.db.models import (
     AISystemProfileRecord,
@@ -16,6 +10,10 @@ from app.services.promptfoo_adapter import (
     build_promptfoo_config,
     config_digest,
 )
+from fastapi import HTTPException
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 
 def test_concurrent_claim_cannot_claim_the_same_pending_run() -> None:
