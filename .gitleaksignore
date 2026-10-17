@@ -1,0 +1,3 @@
+# Verified false positive: a clearly labeled local-lab placeholder, not a credential.
+# Scoped to the historical commit, path, rule, and line; never ignore the rule globally.
+ebae5f478fb8e171c314c50c1d7baf3bdefb3264:docs/start-lab.md:curl-auth-header:108
