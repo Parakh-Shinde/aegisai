@@ -1,708 +1,162 @@
-# AEGISAI Security Lab
+# AegisAI
 
-AEGISAI is a practical AI security lab for evaluating AI models before they are trusted in real workflows.
+**A practical security workbench for testing AI models, LLM applications, and agent workflows.**
 
-> **Deployment scope:** AEGISAI is ready for local use and controlled staging.
-> It includes an enterprise deployment blueprint, but it is not an approved
-> Internet-facing SaaS until the platform release gates are complete. See
-> [Enterprise-Ready Blueprint](docs/enterprise-blueprint.md) and the
-> [Security Deployment Checklist](docs/security-deployment-checklist.md).
+AegisAI is a project I’m building to make AI security testing more repeatable and easier to investigate. Instead of relying on a few manual prompts, the goal is to run structured evaluations, preserve evidence, review findings, and make release decisions with a clearer audit trail.
 
-> **Evaluation integrity:** versioned test corpora, reproducible campaign
-> fingerprints, approved baselines, and regression gates are documented in
-> [Evaluation Integrity](docs/evaluation-integrity.md).
+> **Project status:** Actively developed. AegisAI includes local testing workflows and a growing set of security controls, with production deployment still subject to the documented release gates and security review. Do not expose an unreviewed instance to the public internet or use it with sensitive production data.
 
-> **Release automation:** CI validates the locked evaluation policy, uploads a
-> release-integrity report, and attests that report on public `main` pushes.
-> See [Release Automation](docs/release-automation.md).
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-blue?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Runtime-Docker%20Compose-2496ED?logo=docker&logoColor=white">
+  <img alt="Status" src="https://img.shields.io/badge/status-active%20development-orange">
+</p>
 
-> **Operational readiness:** readiness checks, production configuration
-> validation, checksummed backups, recoverable restores, audit export, and
-> Compose resource limits are documented in
-> [Operational Readiness](docs/operational-readiness.md).
+## Why I’m building it
 
-> **Identity operations:** authenticated users can rotate their own passwords;
-> Admins can manage organization accounts, reset other users, and revoke active
-> tokens with a tamper-evident audit trail. See
-> [Identity Operations](docs/identity-operations.md).
+AI features are being added to products, internal tools, and automated workflows quickly. Traditional application security checks still matter, but they don’t fully answer questions about how an LLM behaves when it receives malicious instructions, untrusted retrieved content, or a risky tool-use request.
 
-> **MFA and automation tokens:** TOTP MFA, encrypted factor material, scoped
-> hashed API tokens, and stricter Security Analyst → Admin release separation
-> are documented in [MFA and Scoped API Tokens](docs/mfa-api-tokens.md).
+I’m building AegisAI to explore that gap hands-on: run repeatable tests, keep the evidence, let a human review the result, and make the decision process easier to explain.
 
-> **Finding triage:** analyst ownership, stateful remediation, SLA visibility,
-> and audited resolution decisions are documented in
-> [Finding Triage](docs/finding-triage.md).
+## What it is designed to do
 
-> **Security reporting:** organization-scoped posture metrics, reviewer activity,
-> release outcomes, and a spreadsheet-safe findings export are documented in
-> [Security Reporting](docs/security-reporting.md).
+- **Evaluate model behavior** with repeatable test cases and security-focused evaluation suites.
+- **Preserve investigation evidence** so results can be reviewed instead of reduced to a single score.
+- **Support analyst workflows** for triage, ownership, review, and remediation tracking.
+- **Compare results over time** and use baselines and release gates to identify regressions.
+- **Add security checks around AI applications** including file inputs, RAG sources, and proposed agent actions.
+- **Apply application security controls** such as authentication, organization-scoped data, MFA, scoped API tokens, and audit logging.
+- **Run locally first** with a Docker Compose development environment and local model integrations.
 
-> **Adaptive coverage:** AI-system profiles map inputs, capabilities, data, and
-> exposure to explicit available and planned security test packs. See
-> [Adaptive AI Security Coverage](docs/adaptive-coverage.md).
+These capabilities are being developed and hardened over time. Availability and maturity vary by feature; use the linked documentation and the current code as the source of truth.
 
-> **File security gateway:** static, non-executing file and document inspection
-> protects staged multimodal model inputs. See
-> [File and Document Security Gateway](docs/file-security.md).
-
-> **RAG source security:** inspect staging knowledge sources for common indirect
-> prompt-injection signals before manual indexing. See
-> [RAG Source Security Ledger](docs/rag-source-security.md).
-
-> **Agent action security:** inspect proposed tool actions and browser excerpts
-> before allowing them in an external agent runtime. See
-> [Agent Action Security Gateway](docs/agent-action-security.md).
-
-> **Agent runtime enforcement:** give a real agent an allow/review/deny decision
-> before it executes a proposed action. See
-> [Agent Runtime Enforcement](docs/agent-runtime-enforcement.md).
-
-> **Agent runtime evaluation:** run a versioned, non-executing adversarial suite
-> against the agent action policy and retain evidence for each result. See
-> [Agent Runtime Evaluation](docs/agent-runtime-evaluation.md).
-
-> **Agent integration client:** use a fail-closed Python helper so an external
-> agent asks AEGISAI before executing a protected action. See
-> [Agent Integration Client](docs/agent-integration-client.md).
-
-> **Measurable assessment evidence:** ground-truth metrics, explicit coverage
-> denominators, and reproducible runtime-evaluation reports. See
-> [Measurable Assessment Framework](docs/measurable-assessment-framework.md).
-
-> **Live application testing:** test an authorized OpenAI-compatible staging
-> application through an allowlisted, isolated runner with environment-only
-> credentials. See [Live AI Application Testing](docs/live-application-testing.md).
-
-> **Multimodal input security:** quarantine risky image and document uploads
-> before they reach a model, OCR pipeline, RAG index, or agent. See
-> [Multimodal Input Security](docs/multimodal-input-security.md).
-
-> **Sandboxed OCR:** extract PNG/JPEG text only inside an internal, constrained
-> no-egress runner and scan that text before model or RAG use. See
-> [Sandboxed OCR Security](docs/sandboxed-ocr-security.md).
-
-It tests model behavior against prompt injection, jailbreak attempts, sensitive data exposure, privacy leakage, tool-injection risks, and release-readiness checks. The goal is simple:
-
-**Test the model. Review the evidence. Decide if it is safe enough to release.**
-
----
-
-
-
-> **Production deployment:** the self-managed HTTPS Compose overlay and launch
-> gates are documented in [Production Deployment](docs/production-deployment.md).
-> This is not a claim that a free hosting tier is suitable for confidential data;
-> public production remains gated on storage, backup/restore, monitoring, and
-> security review.
-
-## Why I Built This
-
-AI models are now being added to products, internal tools, customer support systems, coding assistants, SOC workflows, and automation pipelines.
-
-That creates a new security question:
-
-**What happens when someone tries to manipulate the model?**
-
-Traditional application security testing checks APIs, authentication, authorization, access control, input validation, and infrastructure. AI systems need another layer of testing: behavior testing.
-
-That is where the idea for AEGISAI started.
-
-I wanted to build a lab where a security engineer can test an AI model the same way we test an application before production. The point is not only to check whether the model gives useful answers, but to check whether it stays safe under adversarial prompts.
-
----
-
-## The Idea Behind AEGISAI
-
-When a company builds a new AI model or AI agent, the model should not directly move into production.
-
-Before release, it should go through a security workflow:
-
-1. Connect the model.
-2. Run safety test suites.
-3. Capture prompts and responses.
-4. Detect risky behavior.
-5. Store evidence.
-6. Let analysts review findings.
-7. Compare the model with previous versions.
-8. Generate a release decision.
-
-AEGISAI is built around this workflow. It acts like a security gate between model development and production release.
+## How the workflow fits together
 
 ```mermaid
 flowchart TD
-    A["New AI Model"] --> B["AEGISAI Security Lab"]
-    B --> C["Safety Tests"]
-    C --> D["Analyst Review"]
-    D --> E["Release Decision"]
+    A[Model or AI application] --> B[Configure an authorized target]
+    B --> C[Run a versioned security evaluation]
+    C --> D[Capture prompts, responses, and evidence]
+    D --> E[Review and triage findings]
+    E --> F[Compare with baseline]
+    F --> G{Release gate}
+    G -->|Passes policy| H[Eligible for approval]
+    G -->|Risk or uncertainty| I[Review, remediate, or retest]
 ```
 
----
+AegisAI supports decision-making; it does not replace security review or guarantee that a model is safe.
 
-## How A Company Will Use AEGISAI
+## Security areas
 
-Imagine a company is building a new AI model or AI agent.
+The project focuses on practical risks in LLM-powered systems, including:
 
-Before the model is used by customers, employees, developers, or internal automation systems, the security team needs to answer one important question:
+| Area | Example question |
+| --- | --- |
+| Prompt injection and jailbreaks | Can untrusted instructions override the intended policy? |
+| Sensitive information exposure | Does the model reveal data it should not disclose? |
+| Evaluation integrity | Can results be reproduced and compared against an approved baseline? |
+| File and multimodal inputs | Can a risky upload be inspected before it reaches downstream components? |
+| RAG source security | Does a knowledge source contain suspicious indirect instructions? |
+| Agent and tool-use safety | Should a proposed action be allowed, reviewed, or denied? |
+| Identity and access | Are users, permissions, tokens, and administrative actions controlled and audited? |
+| Release readiness | Do the current findings meet the configured release policy? |
 
-**Is this model safe enough to release?**
+Coverage depends on the configured suite, provider, and runner. A passing evaluation is evidence for the tested cases—not proof that every attack or failure mode has been eliminated.
 
-AEGISAI can be used as the security testing layer before that release.
+## Technology
 
-A company can use AEGISAI to:
+- **Backend:** Python, FastAPI, Pydantic, SQLAlchemy
+- **Data and services:** PostgreSQL, Redis, Alembic migrations
+- **Frontend:** React, TypeScript, Vite
+- **Model and evaluation integrations:** Ollama, Promptfoo, and compatible model endpoints where configured
+- **Runtime:** Docker Compose
+- **Quality and automation:** pytest, Ruff, and GitHub Actions
 
-- Connect a new model to the lab.
-- Run a repeatable safety test suite.
-- Check how the model behaves under attack-style prompts.
-- Store the exact prompt and response for every test.
-- Review uncertain or risky outputs.
-- Compare the new model with older versions.
-- Generate a release decision before production use.
+## Getting started
 
-This makes the AI release process more structured and easier to explain to engineering, security, product, and leadership teams.
+AegisAI is primarily developed as a local lab. The exact required environment variables and available services are defined in the repository's example configuration and deployment documentation.
 
----
+### Prerequisites
 
-## Model Release Workflow
+- Git
+- Docker Desktop with WSL 2 integration (or Docker Engine and Compose)
+- A local model runtime such as Ollama if you want to test local models
 
-A realistic model release workflow can look like this:
-
-| Step | What Happens | Why It Matters |
-|---|---|---|
-| 1. Model is ready | The AI team creates or updates a model | The model is ready for security validation |
-| 2. Model is connected | The model is registered in AEGISAI | The lab can send tests to the model |
-| 3. Safety suite runs | AEGISAI sends adversarial prompts | The model is tested against practical AI security risks |
-| 4. Evidence is captured | Prompts, responses, latency, risk, and severity are stored | Security team can review exact behavior |
-| 5. Findings are reviewed | Analysts review risky or uncertain outputs | Reduces false positives and confirms real issues |
-| 6. Scorecard is generated | AEGISAI calculates safety and category scores | Gives a quick view of model safety |
-| 7. Release gate runs | The lab decides pass, fail, or manual review required | Helps prevent unsafe models from moving forward |
-| 8. Final decision is made | Team approves, blocks, or retests the model | Creates a repeatable release process |
-
----
-
-## Engineering Approach
-
-AEGISAI was built as a working lab rather than a static dashboard.
-
-### 1. Problem Identification
-
-The project focuses on a practical problem: AI models can be useful and still behave unsafely when users attempt prompt injection, jailbreaks, privacy extraction, or tool-injection attacks.
-
-### 2. Requirements Definition
-
-The lab needed to support:
-
-- Local model connectivity.
-- Repeatable test suites.
-- Stored evidence.
-- Risk classification.
-- Analyst review.
-- Release decision support.
-- A dashboard that makes the workflow easy to use.
-
-### 3. Threat Modeling
-
-The initial risk areas are based on common LLM application threats:
-
-- Prompt injection.
-- System prompt extraction.
-- Sensitive data exposure.
-- Jailbreak behavior.
-- Privacy leakage.
-- Tool injection.
-- RAG and agent workflow risks.
-
-### 4. Architecture Design
-
-The project uses a backend-first architecture:
-
-- FastAPI exposes the security testing APIs.
-- SQLAlchemy stores test results and review data.
-- Ollama provides local model execution.
-- JSON corpus files define repeatable safety suites.
-- React provides the dashboard for test execution and analyst review.
-
-### 5. Iteration
-
-The project started with model registry and health checks, then expanded into safety tests, corpus-based suites, campaigns, scorecards, release gates, model comparison, and dashboard workflows.
-
----
-
-## What AEGISAI Can Do Today
-
-AEGISAI currently supports a working end-to-end AI security testing workflow.
-
-### Current Capabilities
-
-- Connect to local Ollama models.
-- Discover available local models.
-- Register models for testing.
-- Run individual security tests.
-- Run a full safety suite.
-- Use corpus-based test cases.
-- Store test results in a database.
-- Track risk status and severity.
-- Track latency for each test.
-- Group test results into campaigns.
-- Review findings manually.
-- Generate dashboard metrics.
-- Generate model scorecards.
-- Compare tested models.
-- Check release readiness.
-- View test results in a React dashboard.
-- Show a demo video inside the dashboard.
-
-This makes AEGISAI more than a simple prompt testing page. It is a working AI security lab with backend, frontend, database, review workflow, and release decision logic.
-
----
-
-## Security Areas Covered
-
-AEGISAI currently focuses on practical AI security risks.
-
-| Security Area | What It Tests |
-|---|---|
-| Prompt Injection | Attempts to override or bypass model instructions |
-| System Prompt Extraction | Attempts to reveal hidden or internal instructions |
-| Sensitive Data Exposure | Attempts to reveal secrets, tokens, passwords, or keys |
-| Jailbreak | Attempts to disable safety behavior or override policies |
-| Privacy Leakage | Attempts to reveal private user data or memory |
-| Tool Injection | Attempts to make the model trust malicious external instructions |
-| RAG Injection | Planned/early corpus coverage for retrieval-augmented workflows |
-| Agent Tool Safety | Planned/early corpus coverage for agent and tool-use behavior |
-
----
-
-## How The Lab Works
-
-AEGISAI sends controlled adversarial prompts to the selected model.
-
-For each test, the lab records:
-
-- Test ID.
-- Created time.
-- Model name.
-- Test type.
-- Test category.
-- Risk status.
-- Severity.
-- Latency.
-- Campaign ID.
-- Prompt sent.
-- Model response.
-- Finding.
-- Recommendation.
-- Review status.
-- Review notes.
-
-This gives the security team a clear trail of what was tested, how the model responded, and what decision was made.
-
-```mermaid
-flowchart TD
-    A["Select Model"] --> B["Run Test Suite"]
-    B --> C["Capture Response"]
-    C --> D["Classify Risk"]
-    D --> E["Store Evidence"]
-    E --> F["Review Result"]
-    F --> G["Release Gate"]
-```
-
----
-
-## Risk Status
-
-AEGISAI classifies every result into a simple risk status.
-
-| Status | Meaning |
-|---|---|
-| Blocked | The model refused or safely handled the risky request |
-| Uncertain | The model response needs human review |
-| Leaked | The model appeared to reveal or accept unsafe behavior |
-
-This makes it easier to understand results quickly without reading every full response first.
-
----
-
-## Review Workflow
-
-AI security testing cannot depend only on automation.
-
-Some outputs need human judgment. AEGISAI includes a review workflow so a security analyst can make the final call.
-
-| Review Status | Meaning |
-|---|---|
-| Unreviewed | Finding has not been reviewed yet |
-| Confirmed Safe | Analyst confirmed the response is safe |
-| Confirmed Risky | Analyst confirmed this is a real issue |
-| False Positive | Automated detection flagged it incorrectly |
-| Needs Retest | The test should be improved or run again |
-
-This helps reduce noise and makes the results more useful for real security decisions.
-
----
-
-## Release Gate
-
-AEGISAI includes a release gate to help decide whether a model is ready.
-
-The release gate checks:
-
-- Total number of tests.
-- Safety score.
-- Leaked findings.
-- High-risk findings.
-- Uncertain findings.
-- Unreviewed findings.
-- Confirmed risky findings.
-
-| Decision | Meaning |
-|---|---|
-| Pass | Model meets the current safety requirements |
-| Manual Review Required | Model needs analyst review before release |
-| Fail | Model has serious safety issues |
-
-This gives the team a clear decision instead of only raw test results.
-
----
-
-## Dashboard
-
-The frontend dashboard is built for a security engineer workflow.
-
-It helps the user run tests, inspect results, review findings, and understand model release readiness.
-
-### Dashboard Includes
-
-- Lab overview.
-- Demo video.
-- Safety score.
-- Passed, failed, and review metrics.
-- Run safety suite action.
-- Live testing view.
-- Latest results table.
-- Test detail viewer.
-- Analyst review workflow.
-- Model comparison.
-- Release gate summary.
-
-The dashboard is designed to make the lab easier to use for someone testing a model from start to finish.
-
----
-## Demo Video
-
-AEGISAI includes a short demo video showing the lab workflow, dashboard, model testing, review process, and release gate.
-
-[Open AEGISAI Demo Video](frontend/public/demo.mp4)
-
----
-
-## Real-World Impact
-
-AEGISAI can help teams save time and improve AI release safety.
-
-Instead of manually testing a model with random prompts, the team gets a repeatable process.
-
-AEGISAI can help with:
-
-- Faster AI model security testing.
-- Early detection of unsafe model behavior.
-- Better evidence collection.
-- Clearer analyst review.
-- Safer model releases.
-- Model-to-model comparison.
-- Repeatable regression testing.
-- Better communication between AI, security, and product teams.
-
-As more companies build AI models and AI agents, a security lab like this can become part of the release process.
-
----
-
-## Technical Stack
-
-### Backend
-
-- Python.
-- FastAPI.
-- SQLAlchemy.
-- SQLite or PostgreSQL.
-- Pydantic.
-- Uvicorn.
-- Ollama adapter.
-- Ruff.
-
-### Frontend
-
-- React.
-- TypeScript.
-- Vite.
-- CSS.
-- Fetch API.
-
-### Local Model Runtime
-
-- Ollama.
-- Local LLM models.
-
-### Testing And Quality
-
-- Pytest tests for security analysis and controls.
-- Ruff linting configuration.
-- GitHub Actions CI workflow.
-
----
-
-## Project Structure
-
-```text
-aegisai/
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── adapters.py
-│   │   │   ├── model_registry.py
-│   │   │   └── security_tests.py
-│   │   ├── core/
-│   │   │   ├── database.py
-│   │   │   └── security.py
-│   │   ├── corpus/
-│   │   │   ├── agent_tool_safety_suite.json
-│   │   │   ├── basic_safety_suite.json
-│   │   │   └── rag_injection_suite.json
-│   │   ├── db/
-│   │   │   └── models.py
-│   │   ├── models/
-│   │   │   └── model_registry.py
-│   │   ├── services/
-│   │   │   └── ollama_adapter.py
-│   │   └── main.py
-│   ├── scripts/
-│   │   └── init_db.py
-│   └── tests/
-│       ├── test_security_analysis.py
-│       └── test_security_controls.py
-│
-├── docs/
-│   ├── demo-flow.md
-│   ├── security-roadmap.md
-│   └── start-lab.md
-│
-├── frontend/
-│   ├── public/
-│   │   └── demo.mp4
-│   └── src/
-│       ├── App.tsx
-│       ├── App.css
-│       └── main.tsx
-│
-├── .env.example
-├── pyproject.toml
-└── README.md
-```
-
----
-
-## How To Run The Lab
-
-### Recommended: One-Command Local Launch
-
-AEGISAI can run as a local Docker-based tool. The dashboard and API bind only
-to `127.0.0.1`, and your Ollama endpoint remains local by default.
+### Start the local environment
 
 ```bash
 git clone https://github.com/Parakh-Shinde/aegisai.git
 cd aegisai
+cp .env.example .env
+```
+
+Review `.env.example` and the [Docker guide](docs/docker.md) before starting. Set the required local values; do not reuse production credentials or commit your real `.env` file.
+
+Then start the services using the repository's Makefile:
+
+```bash
 make start
 ```
 
-Open the dashboard at `http://127.0.0.1:5173`.
+When the services are healthy, the development dashboard is normally available at `http://127.0.0.1:5173` and the API at `http://127.0.0.1:8000`, as configured by the local Compose setup.
 
-For Windows + WSL, set the Windows host IP as both `OLLAMA_BASE_URL` and
-`AEGISAI_LOCAL_MODEL_ENDPOINTS` in `.env` when needed. See [the Docker guide](docs/docker.md)
-for setup, health checks, and safe cleanup instructions.
+For setup details, health checks, cleanup, model connectivity, and troubleshooting, see [docs/docker.md](docs/docker.md) and [docs/start-lab.md](docs/start-lab.md).
 
-For the shared-deployment security model, production variables, RBAC roles, and
-operational limits, read [the v0.2 Production Foundation guide](docs/production-foundation.md).
-Use the [security deployment checklist](docs/security-deployment-checklist.md) before
-exposing the application beyond your local machine.
+## Security and deployment notes
 
----
+Security is part of the project, not a claim that the project is already production-certified.
 
-### 1. Start Ollama On Windows
+- Use only models, applications, and environments you own or are explicitly authorized to test.
+- Keep credentials in environment variables or an appropriate secret manager; never commit real tokens, keys, passwords, or production environment files.
+- Keep local services bound to loopback unless you have deliberately configured and reviewed network access.
+- Review the [security deployment checklist](docs/security-deployment-checklist.md) and [production deployment guide](docs/production-deployment.md) before considering any non-local deployment.
+- The production blueprint is not a substitute for validating secrets, backups and restores, monitoring, access controls, network exposure, and release checks in the actual environment.
 
-Open Windows PowerShell:
+## Documentation
 
-```powershell
-$env:OLLAMA_HOST="0.0.0.0:11434"
-ollama serve
-```
+The `docs/` directory contains implementation notes and guides for the project's security workflows. Useful starting points include:
 
-Keep this terminal open.
+- [Start the lab](docs/start-lab.md)
+- [Docker setup](docs/docker.md)
+- [Security deployment checklist](docs/security-deployment-checklist.md)
+- [Production deployment](docs/production-deployment.md)
+- [Evaluation integrity](docs/evaluation-integrity.md)
+- [Identity operations](docs/identity-operations.md)
+- [MFA and scoped API tokens](docs/mfa-api-tokens.md)
+- [Agent runtime enforcement](docs/agent-runtime-enforcement.md)
+- [Promptfoo tool runner](docs/promptfoo-tool-runner.md)
+- [Security roadmap](docs/security-roadmap.md)
 
-### 2. Start Backend In WSL Ubuntu
+If a guide and the current code differ, treat the current code and verified behavior as authoritative and open an issue for anything that needs correction.
 
-Open Ubuntu terminal:
+## Development approach
 
-```bash
-cd ~/projects/aegisai
-source backend/.venv/bin/activate
+I’m building this incrementally: implement a security control, keep the behavior testable, document its limitations, and improve the workflow based on what the tests and hands-on use reveal. I’m especially interested in the intersection of AI security, application security, adversarial testing, and secure engineering.
 
-WINDOWS_HOST=$(ip route | awk '/default/ {print $3}')
-OLLAMA_BASE_URL=http://$WINDOWS_HOST:11434 uvicorn app.main:app --app-dir backend --reload
-```
+Contributions, bug reports, and specific improvement suggestions are welcome. Please avoid posting live credentials, private customer data, or details of systems you do not have permission to test.
 
-Backend runs at:
+## Roadmap
 
-```text
-http://127.0.0.1:8000
-```
+Areas I’m continuing to improve include:
 
-### 3. Start Frontend
+- Broader and more reliable adversarial evaluation coverage
+- Stronger regression and release-gate evidence
+- Safer integrations for AI agents, RAG, and multimodal inputs
+- Clearer reports that help analysts reproduce and triage findings
+- Continued review of authentication, tenant isolation, and production hardening
+- Better setup documentation and developer experience
 
-Open another Ubuntu terminal:
-
-```bash
-cd ~/projects/aegisai/frontend
-npm run dev
-```
-
-Frontend runs at:
-
-```text
-http://localhost:5173
-```
-
----
-
-## Quick Verification
-
-Check backend health:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-Check Ollama adapter:
-
-```bash
-curl http://127.0.0.1:8000/adapters/ollama/health
-```
-
-Run the basic safety suite:
-
-```bash
-curl -X POST http://127.0.0.1:8000/security-tests/suite/basic \
-  -H "Content-Type: application/json" \
-  -d '{"model":"qwen2.5:3b"}'
-```
-
-View dashboard metrics:
-
-```bash
-curl http://127.0.0.1:8000/security-tests/dashboard
-```
-
-View latest results:
-
-```bash
-curl http://127.0.0.1:8000/security-tests/results
-```
-
-Compare tested models:
-
-```bash
-curl http://127.0.0.1:8000/security-tests/models/compare
-```
-
----
-
-## Current Status
-
-AEGISAI is currently a local AI security lab prototype.
-
-It already supports:
-
-- Local model testing.
-- Corpus-based safety suites.
-- Security result storage.
-- Campaign tracking.
-- Analyst review workflow.
-- Release gate logic.
-- Model comparison.
-- Dashboard UI.
-- Demo video integration.
-
-This is not only a dashboard. It is a working backend and frontend system for AI model security evaluation.
-
----
-
-## Limitations
-
-AEGISAI is still an early-stage lab and should not be treated as a complete production security platform yet.
-
-Current limitations:
-
-- It is primarily designed for local lab use.
-- Automated judging still needs analyst review.
-- Broader provider support is planned.
-- Authentication and role-based access need further hardening for production use.
-- Enterprise deployment, monitoring, and audit exports are still part of the roadmap.
-
----
-
-## What I Will Add Next
-
-AEGISAI is still growing. The next goal is to make it closer to a real AI security lab used by security teams.
-
-Planned improvements:
-
-- More advanced red-team test suites.
-- More model provider support.
-- AI agent testing.
-- Tool-use and function-calling attack simulations.
-- RAG security testing.
-- Prompt injection datasets.
-- Automated security reports.
-- Model-to-model comparison reports.
-- Compliance-style evidence export.
-- Authentication and role-based access.
-- CI/CD safety gates for AI releases.
-- Stronger scoring and evaluation logic.
-- Analyst collaboration features.
-- Campaign history and trend tracking.
-- Enterprise AI workflow testing.
-
-The long-term goal is to make AEGISAI useful for testing new AI models, AI agents, and LLM-powered applications before they are released.
-
----
-
-## Long-Term Vision
-
-The long-term vision for AEGISAI is to become a practical AI security lab for testing new models, AI agents, and LLM-powered applications.
-
-When a company builds a new AI model, the question should not only be:
-
-**Does the model work?**
-
-The question should also be:
-
-**Is the model safe enough to release?**
-
-AEGISAI is built around that idea.
-
-It gives teams a repeatable way to test AI behavior, collect evidence, review findings, compare models, and make safer release decisions.
-
----
+The roadmap is a work in progress; it should not be read as a claim that every item is complete.
 
 ## Author
 
-Built by **Parakh Shinde**.
+**Parakh Shinde** — cybersecurity fresher building hands-on projects in AI security and security engineering.
 
-Cybersecurity fresher focused on AI Security, Red Teaming, SOC, Threat Detection, and practical security engineering.
+- GitHub: [@Parakh-Shinde](https://github.com/Parakh-Shinde)
+- Portfolio: [parakh-shinde.github.io](https://parakh-shinde.github.io/)
 
-GitHub: [Parakh-Shinde](https://github.com/Parakh-Shinde)
-## Real-tool integrations
+---
 
-AEGISAI can run an approved local Ollama model through the isolated Promptfoo
-runner and preserve per-case evidence rather than presenting a simulated scan.
-See [Promptfoo tool runner](docs/promptfoo-tool-runner.md) for the target
-authorization, local configuration, and execution steps.
+*Built as a hands-on learning and engineering project. Feedback that is specific, respectful, and reproducible is always useful.*
