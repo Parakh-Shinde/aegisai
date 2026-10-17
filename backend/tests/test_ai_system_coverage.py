@@ -1,8 +1,8 @@
 import pytest
-from pydantic import ValidationError
 
 from app.models.ai_system import AISystemProfileRequest
 from app.services.coverage import build_coverage_plan
+from pydantic import ValidationError
 
 
 def test_text_assistant_has_current_available_coverage() -> None:
