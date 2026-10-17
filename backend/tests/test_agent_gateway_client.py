@@ -2,7 +2,6 @@ import json
 
 import httpx
 import pytest
-
 from app.integrations.agent_gateway import (
     AgentActionDenied,
     AgentActionProposal,
