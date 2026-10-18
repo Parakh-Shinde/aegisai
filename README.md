@@ -119,6 +119,7 @@ Security is part of the project, not a claim that the project is already product
 The `docs/` directory contains implementation notes and guides for the project's security workflows. Useful starting points include:
 
 - [Start the lab](docs/start-lab.md)
+- [Maintaining AegisAI](docs/maintaining-aegisai.md)
 - [Docker setup](docs/docker.md)
 - [Security deployment checklist](docs/security-deployment-checklist.md)
 - [Production deployment](docs/production-deployment.md)
