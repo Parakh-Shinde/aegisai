@@ -1,10 +1,9 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { ACCESS_TOKEN_KEY, API_BASE_URL, apiGet, apiSend } from "./lib/api";
 import "./App.css";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 const AUTH_REQUIRED = import.meta.env.VITE_AUTH_REQUIRED === "true";
 const ASYNC_CAMPAIGNS = import.meta.env.VITE_ASYNC_CAMPAIGNS === "true";
-const ACCESS_TOKEN_KEY = "aegisai_access_token";
 
 type TestType = "prompt-injection" | "sensitive-data" | "jailbreak";
 
@@ -471,38 +470,7 @@ function formatDate(value: string) {
 
 async function apiGet<T>(path: string): Promise<T> {
   const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function apiSend<T>(path: string, method: string, body?: unknown): Promise<T> {
-  const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function waitForCampaign(jobId: string): Promise<SuiteResponse> {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    const job = await apiGet<CampaignJob>(`/security-tests/jobs/${jobId}`);
+  const respononst job = await apiGet<CampaignJob>(`/security-tests/jobs/${jobId}`);
     if (job.status === "finished" && job.result) {
       return job.result;
     }
