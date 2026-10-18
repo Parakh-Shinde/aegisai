@@ -468,9 +468,9 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
-  const respononst job = await apiGet<CampaignJob>(`/security-tests/jobs/${jobId}`);
+async function waitForCampaign(jobId: string): Promise<SuiteResponse> {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const job = await apiGet<CampaignJob>(`/security-tests/jobs/${jobId}`);
     if (job.status === "finished" && job.result) {
       return job.result;
     }
