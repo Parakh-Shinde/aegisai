@@ -103,13 +103,13 @@ Run the smallest relevant test first, then broader checks. Review the final diff
 
 ## Frontend maintainability
 
-The main frontend component currently contains a large amount of domain typing, API access, UI state, and workflow rendering. Refactor this incrementally rather than rewriting the dashboard all at once.
+The main frontend component still contains a large amount of domain typing, UI state, and workflow rendering. Shared JSON API transport has been moved into `frontend/src/lib/api.ts`; feature-specific upload/download requests remain in the component. Continue incrementally rather than rewriting the dashboard all at once.
 
 A sensible order is:
 
 1. Identify cohesive sections and their state dependencies.
 2. Extract pure formatting and mapping helpers that can be tested without React.
-3. Isolate API transport and error handling behind a small typed client.
+3. Keep shared JSON requests in the typed client; consider extracting upload/download requests only when doing so preserves their distinct headers, response types, and error handling.
 4. Extract components where they own a clear UI responsibility and stable inputs.
 5. Extract hooks only where stateful behaviour is genuinely reusable or has a clear lifecycle.
 6. Run TypeScript build and lint after each extraction and compare the UI behaviour.
