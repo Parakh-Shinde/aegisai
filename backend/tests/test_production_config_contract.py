@@ -6,9 +6,7 @@ non-routable test values; they are not deployment secrets.
 """
 
 import pytest
-
 from app.core.config import get_settings
-
 from cryptography.fernet import Fernet
 
 
