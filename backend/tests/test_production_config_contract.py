@@ -6,9 +6,9 @@ non-routable test values; they are not deployment secrets.
 """
 
 import pytest
-from cryptography.fernet import Fernet
 
 from app.core.config import get_settings
+from cryptography.fernet import Fernet
 
 
 def _set_valid_production_environment(monkeypatch: pytest.MonkeyPatch) -> None:
